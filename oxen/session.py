@@ -52,7 +52,7 @@ class Session:
     def get_task_by_id(self, task_id):
         return self.id_to_tasks[task_id]
 
-    def run(self, *, port=4242, address=''):
+    def start(self, *, port=4242, address=''):
         WebApp.setup()
         loop = asyncio.get_event_loop()
         # Register all tasks

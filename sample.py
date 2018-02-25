@@ -4,7 +4,7 @@ from oxen import Session, Process, Watch, auto_rsync
 
 
 def run():
-    session = Session(name='Sample')
+    session = Session(name='Oxen Sample')
 
     session += Process(
         'python',
@@ -25,7 +25,7 @@ def run():
         name='Auto Sync'
     )
 
-    session.run()
+    session.start()
 
 
 def prepare_test_data():
