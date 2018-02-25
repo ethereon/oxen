@@ -34,7 +34,7 @@ class Watch(BufferedTask):
         self.active_task = None
         self.active_task_stream = None
         self.observer = watchdog.observers.Observer()
-        self.observer.schedule(self, path, recursive=recursive)
+        self.observer.schedule(self, self.path, recursive=recursive)
 
     def start(self):
         self.write_line(f'{ColorText.green("Watching:")} {self.path}')
