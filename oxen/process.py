@@ -28,7 +28,7 @@ class Process(BufferedTask):
 
     def __init__(self, *argv, shell=False, cwd=None, env=None, name=None):
         super().__init__(name=(name or ' '.join(argv)))
-        self.argv = list(argv)
+        self.argv = list(map(str, argv))
         # TODO(saumitro): Implement shell support
         self.shell = shell
         self.process = None

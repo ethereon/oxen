@@ -25,7 +25,7 @@ class Watch(BufferedTask):
 
     def __init__(self, path, *, handler, name, recursive=False, delay=1.0, force_once=False):
         super().__init__(name)
-        self.path = path
+        self.path = str(path)
         self.handler = (lambda _: handler) if isinstance(handler, Task) else handler
         self.delay = delay
         self.force_once = force_once
