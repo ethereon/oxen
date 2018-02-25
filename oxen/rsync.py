@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .process import Process
 from .watch import Watch
 
@@ -29,9 +31,15 @@ def auto_rsync(
         if is_set:
             command.append('--' + flag)
 
+    # Establish the directory to watch for changes
+    watch_dir = Path(source)
+    if not watch_dir.is_dir():
+        # Source is a file. Watch its parent directory.
+        watch_dir = watch_dir.parent
+
     return Watch(
         # Watch the source path for changes
-        path=source,
+        path=watch_dir,
         # Sync the destination using rsync when changes are detected
         handler=Process(*command, name='rsync'),
         # Ensure the destination is synced at start
