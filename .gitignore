@@ -1,0 +1,16 @@
+# macOS temporary files
+.DS_Store
+
+# Python compiled files
+*.pyc
+
+# Build files
+client/built
+*.egg-info
+
+# Node
+node_modules
+package-lock.json
+
+# Editors
+.vscode
