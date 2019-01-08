@@ -15,15 +15,16 @@
     },
     "homepage": "https://github.com/ethereon/oxen#readme",
     "dependencies": {
-        "ansi_up": "^2.0.2",
-        "react": "^16.2.0",
-        "react-dom": "^16.2.0"
+        "ansi_up": "^3.0.0",
+        "react": "^16.7.0",
+        "react-dom": "^16.7.0"
     },
     "devDependencies": {
         "@types/react": "^16.0.38",
         "@types/react-dom": "^16.0.4",
-        "ts-loader": "^3.5.0",
-        "typescript": "^2.7.2",
-        "webpack": "^3.11.0"
+        "ts-loader": "^5.3.3",
+        "typescript": "^3.2.2",
+        "webpack": "^4.28.3",
+        "webpack-cli": "^3.2.1"
     }
 }
