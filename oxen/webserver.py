@@ -95,7 +95,7 @@ class TaskActionHandler(tornado.web.RequestHandler):
 
 class WebApp(tornado.web.Application):
     def __init__(self, session):
-        static_path = Path(__file__).parent.parent / 'client' / 'static'
+        static_path = Path(__file__).parent / 'client' / 'static'
         template_path = static_path / 'templates'
         session_dict = {'session': session}
 
