@@ -12,8 +12,15 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
     packages=find_packages(),
-    install_requires=['tornado', 'watchdog'],
+    package_data={
+        'oxen': [
+            'client/static/js/*.js*',
+            'client/static/css/*.css',
+            'client/static/templates/*.html',
+        ],
+    },
     include_package_data=True,
+    install_requires=['tornado', 'watchdog'],
     zip_safe=True,
     license='MIT'
 )
