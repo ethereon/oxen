@@ -1,4 +1,7 @@
 def colorant(color_code):
+    """
+    Returns a function that formats strings with the given ANSI color code.
+    """
     prefix = '\033[' + str(color_code) + 'm'
 
     def color_text(text):
@@ -8,6 +11,9 @@ def colorant(color_code):
 
 
 class ColorText:
+    """
+    A collection of ANSI color code formatters.
+    """
     blue = colorant(94)
     green = colorant(92)
     magenta = colorant(95)
