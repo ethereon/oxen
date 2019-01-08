@@ -3,9 +3,7 @@
     "version": "0.1.0",
     "description": "Web client for Oxen",
     "main": "index.js",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
+    "scripts": {},
     "repository": {
         "type": "git",
         "url": "git+https://github.com/ethereon/oxen.git"
