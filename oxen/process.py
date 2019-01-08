@@ -27,8 +27,8 @@ class Process(BufferedTask):
     BLOCK_SIZE = 1024
 
     def __init__(self, *argv, shell=False, cwd=None, env=None, name=None):
-        super().__init__(name=(name or ' '.join(argv)))
         self.argv = list(map(str, argv))
+        super().__init__(name=(name or ' '.join(self.argv)))
         # TODO(saumitro): Implement shell support
         self.shell = shell
         self.process = None
