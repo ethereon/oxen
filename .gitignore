@@ -3,6 +3,7 @@
 
 # Python compiled files
 *.pyc
+dist/*.tar.gz
 
 # Build files
 client/built
