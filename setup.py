@@ -17,7 +17,8 @@ setup(
     url='https://github.com/ethereon/oxen',
     classifiers=[
         'Development Status :: 4 - Beta',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3',
+        'License :: OSI Approved :: BSD License',
     ],
     packages=find_packages(),
     package_data={
@@ -30,5 +31,5 @@ setup(
     include_package_data=True,
     install_requires=['tornado', 'watchdog'],
     zip_safe=True,
-    license='MIT'
+    license='BSD'
 )
