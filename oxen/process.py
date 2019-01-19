@@ -125,6 +125,8 @@ class Process(BufferedTask):
         ]
 
     def get_status(self):
+        if self.process is None:
+            return TaskStatus.FINISHED
         if self.process.isalive():
             return TaskStatus.ACTIVE
         if self.process.exitstatus == 0:
