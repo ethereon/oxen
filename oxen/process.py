@@ -132,34 +132,3 @@ class Process(BufferedTask):
         if self.process.exitstatus == 0:
             return TaskStatus.FINISHED
         return TaskStatus.FAILED
-
-
-class LazyProcess(Process):
-    """
-    A process that starts off inactive. It must be manually initiated.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.num_invocations = 0
-
-    @property
-    def has_been_manually_invoked(self):
-        return self.num_invocations > 1
-
-    def start(self):
-        self.num_invocations += 1
-        if self.has_been_manually_invoked:
-            super().start()
-        self.events.publish(TaskEvent.STATUS_CHANGED)
-
-    def restart(self):
-        if self.has_been_manually_invoked:
-            # Actually restart
-            super().restart()
-        else:
-            # First manual invocation
-            self.start()
-
-    def get_status(self):
-        return super().get_status() if self.has_been_manually_invoked else TaskStatus.FINISHED

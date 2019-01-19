@@ -42,19 +42,19 @@ class Task:
 
     def start(self):
         """
-        Register tasks with the event loop
+        Register tasks with the event loop.
         """
         raise NotImplementedError
 
     def stop(self):
         """
-        Stop the task and remove from the event loop
+        Stop the task and remove from the event loop.
         """
         raise NotImplementedError
 
     def get_output(self):
         """
-        Provide the output for this task
+        Provide the output for this task.
         """
         raise NotImplementedError
 
@@ -69,6 +69,12 @@ class Task:
         Returns a value from TaskStatus.
         """
         raise NotImplementedError
+
+    def set_event_loop(self, event_loop):
+        """
+        Invoked by the session before starting the task.
+        """
+        self.loop = event_loop
 
     def perform_action(self, action_name):
         """
@@ -111,3 +117,69 @@ class BufferedTask(Task):
 
     def get_output(self):
         return self.output.getvalue()
+
+
+class Lazy(Task):
+    """
+    A task wrapper that accepts a task instance and makes it "lazily"
+    initialized. That is, it must be manually initiated by the user.
+    Until then, it remains in an inactive state.
+
+    Useful for creating "on demand" tasks.
+    """
+
+    def __init__(self, task):
+        super().__init__(name=task.name)
+        self._wrapped_task = task
+        self._num_invocations = 0
+        self.id = task.id
+        self.events = task.events
+
+    @property
+    def has_been_manually_invoked(self):
+        return self._num_invocations > 1
+
+    def set_event_loop(self, event_loop):
+        super().set_event_loop(event_loop)
+        self._wrapped_task.set_event_loop(event_loop)
+
+    def start(self):
+        self._num_invocations += 1
+        # Suppress the first invocation
+        if self._num_invocations == 2:
+            self._wrapped_task.start()
+            # Trigger an update (most notably, for the actions displayed in the client)
+            self.events.publish(TaskEvent.STATUS_CHANGED)
+
+    def stop(self):
+        if self.has_been_manually_invoked:
+            self._wrapped_task.stop()
+
+    def get_output(self):
+        if self.has_been_manually_invoked:
+            return self._wrapped_task.get_output()
+        return f'Task "{self.name}" has not been started.'
+
+    def _get_wrapper_actions(self):
+        return [TaskAction(name='Start', handler=self.start)]
+
+    def get_actions(self):
+        if self.has_been_manually_invoked:
+            return self._wrapped_task.get_actions()
+        return self._get_wrapper_actions()
+
+    def get_status(self):
+        if self.has_been_manually_invoked:
+            return self._wrapped_task.get_status()
+        return TaskStatus.FINISHED
+
+    def perform_action(self, action_name):
+        if self.has_been_manually_invoked:
+            try:
+                self._wrapped_task.perform_action(action_name)
+            except ValueError:
+                # Suppress duplicate actions sent to the lazy wrapper
+                if action_name not in (action.name for action in self._get_wrapper_actions()):
+                    raise
+        else:
+            super().perform_action(action_name)

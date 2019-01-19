@@ -44,7 +44,7 @@ class Session:
 
     def start_tasks(self, loop):
         for task in self.tasks:
-            task.loop = loop
+            task.set_event_loop(loop)
             task.start()
             self.task_status_monitor.add(task)
             status_ok('Started', task.name)
