@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from oxen import Session, Process, Watch, auto_rsync
+from oxen import Session, Process, LazyProcess, Watch, auto_rsync
 
 
 def run():
@@ -23,6 +23,19 @@ def run():
         source='/tmp/oxen-test/source',
         dest='/tmp/oxen-test/dest',
         name='Auto Sync'
+    )
+
+    session += LazyProcess(
+        'echo',
+        'Lazy process triggered.',
+        name='Lazy echo',
+        shell=True
+    )
+
+    session += LazyProcess(
+        'false',
+        name='Lazy fail',
+        shell=True
     )
 
     session.start()

@@ -24,18 +24,23 @@ class Process(BufferedTask):
       Optional name for this task. If not provided, the command string is used as the name.
     """
 
-    BLOCK_SIZE = 1024
-
     def __init__(self, *argv, shell=False, cwd=None, env=None, name=None):
         self.argv = list(map(str, argv))
         super().__init__(name=(name or ' '.join(self.argv)))
         # TODO(saumitro): Implement shell support
         self.shell = shell
-        self.process = None
         self.cwd = cwd
         self.env = env
+        # A pseudo-terminal process instance
+        self.process = None
+        # A future that's resolved when the process exits
         self.future_process_exit = None
+        # A future that's resolved when the process finishes restarting
         self.future_restart = None
+        # Block size for reading in process output (in bytes)
+        self.data_block_size = 1024
+        # Interval for checking if the process is still alive (in seconds)
+        self.process_heartbeat_interval = 0.5
 
     def start(self):
         assert (self.process is None) or (not self.process.isalive())
@@ -58,7 +63,7 @@ class Process(BufferedTask):
         # Monitor process exit
         async def monitor_process_status(process):
             while process.isalive():
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(self.process_heartbeat_interval)
             self.on_process_terminate(process)
             self.future_process_exit = None
         self.future_process_exit = asyncio.ensure_future(monitor_process_status(self.process))
@@ -69,7 +74,8 @@ class Process(BufferedTask):
     def stop(self):
         # The force flag is treated as a last resort. PtyProcess first attempts
         # to amicably terminate the process with SIGHUP/SIGINT.
-        self.process.terminate(force=True)
+        if self.process:
+            self.process.terminate(force=True)
 
     def restart(self):
         if self.future_restart is not None:
@@ -88,7 +94,7 @@ class Process(BufferedTask):
         if not self.process.isalive():
             return
         try:
-            self.write_output(self.process.read(self.BLOCK_SIZE).decode('utf8'))
+            self.write_output(self.process.read(self.data_block_size).decode('utf8'))
         except EOFError:
             pass
 
@@ -124,3 +130,34 @@ class Process(BufferedTask):
         if self.process.exitstatus == 0:
             return TaskStatus.FINISHED
         return TaskStatus.FAILED
+
+
+class LazyProcess(Process):
+    """
+    A process that starts off inactive. It must be manually initiated.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_invocations = 0
+
+    @property
+    def has_been_manually_invoked(self):
+        return self.num_invocations > 1
+
+    def start(self):
+        self.num_invocations += 1
+        if self.has_been_manually_invoked:
+            super().start()
+        self.events.publish(TaskEvent.STATUS_CHANGED)
+
+    def restart(self):
+        if self.has_been_manually_invoked:
+            # Actually restart
+            super().restart()
+        else:
+            # First manual invocation
+            self.start()
+
+    def get_status(self):
+        return super().get_status() if self.has_been_manually_invoked else TaskStatus.FINISHED
