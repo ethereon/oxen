@@ -73,13 +73,19 @@ class TaskOutputHandler(tornado.websocket.WebSocketHandler):
         if new_fragment is None:
             return
         try:
-            self.write_message(new_fragment)
+            write_future = self.write_message(new_fragment)
+            # If a WebSockedClosedError (or some other exception) is raised, it may be set
+            # on the future. If this is not explicitly retrieved, Python will report an error
+            # when the future is garbage collected. For additional details, see:
+            #   https://docs.python.org/3/library/asyncio-dev.html#detect-never-retrieved-exceptions
+            # To avoid this, result is explicitly invoked which causes any set exceptions to be raised.
+            write_future.result()
         except tornado.websocket.WebSocketClosedError:
             self.unsubscribe()
 
     def unsubscribe(self):
         if self.task is not None:
-            self.task.events.unsubscribe(self.on_task_event)
+            self.task.events.unsubscribe(self.on_task_event, ignore_missing=True)
 
 
 class TaskActionHandler(tornado.web.RequestHandler):
