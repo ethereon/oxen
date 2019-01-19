@@ -30,9 +30,14 @@ class Task:
     id_generator = itertools.count()
 
     def __init__(self, name):
+        # A unique ID associated with this task.
+        # By default, a monotonically increasing integer.
         self.id = next(Task.id_generator)
+        # A name associated with this task (not necessarily unique)
         self.name = name
+        # Event publisher / subscriber
         self.events = EventEmitter()
+        # An asyncio event loop. Subclasses must register tasks with this event loop.
         self.loop = None
 
     def start(self):
@@ -45,7 +50,7 @@ class Task:
         """
         Stop the task and remove from the event loop
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def get_output(self):
         """
