@@ -15,7 +15,7 @@
     },
     "homepage": "https://github.com/ethereon/oxen#readme",
     "dependencies": {
-        "ansi_up": "^3.0.0",
+        "ansi_up": "^5.0.0",
         "react": "^16.7.0",
         "react-dom": "^16.7.0"
     },
