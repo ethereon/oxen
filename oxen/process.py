@@ -8,7 +8,7 @@ import shlex
 from collections.abc import Sequence
 from typing import Any
 
-from .task import Task, TaskStatus
+from .task import Task, TaskStatus, BufferedTaskOutput
 
 
 class Process(Task):
@@ -130,14 +130,17 @@ class Process(Task):
         encoding: str,
         errors: str,
     ) -> None:
+        task_output = self.output
+        assert isinstance(task_output, BufferedTaskOutput)
+
         decoder = codecs.getincrementaldecoder(encoding)(errors=errors)
 
         while chunk := await stream.read(self._READ_SIZE):
             if output := decoder.decode(chunk):
-                self.on_new_output.publish(output)
+                task_output.append(output)
 
         if output := decoder.decode(b'', final=True):
-            self.on_new_output.publish(output)
+            task_output.append(output)
 
     @staticmethod
     def _shell_command(

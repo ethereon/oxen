@@ -1,3 +1,5 @@
+import io
+
 from enum import Enum
 
 from .publisher import Publisher
@@ -10,22 +12,44 @@ class TaskStatus(Enum):
     FAILED = 'failed'
 
 
+class TaskOutput:
+    """
+    Base class for task output.
+    """
+
+    def __init__(self):
+        self.on_update = Publisher[str]()
+
+    def get_output(self) -> str:
+        """
+        Get the current output of the task.
+        """
+        raise NotImplementedError('Subclasses must implement the get_output method.')
+
+
+class BufferedTaskOutput(TaskOutput):
+    def __init__(self):
+        super().__init__()
+        self._output = io.StringIO()
+
+    def append(self, text: str) -> None:
+        self._output.write(text)
+        self.on_update.publish(text)
+
+    def get_output(self) -> str:
+        return self._output.getvalue()
+
+
 class Task:
     """
     Abstract base class for tasks.
     """
 
     def __init__(self):
-        # Published when the task produces new output (e.g., log lines).
-        # The value is a string containing the new output.
-        self.on_new_output = Publisher[str]()
-
         # Published when the task's status changes.
         self.on_status_change = Publisher[TaskStatus]()
 
-        # Published when the task's past output is reset (e.g., cleared).
-        self.on_output_reset = Publisher[None]()
-
+        self.output = self.create_output()
         self._status = TaskStatus.PENDING
 
     async def run(self) -> None:
@@ -50,3 +74,6 @@ class Task:
         if new_status != self._status:
             self._status = new_status
             self.on_status_change.publish(new_status)
+
+    def create_output(self) -> TaskOutput:
+        return BufferedTaskOutput()
