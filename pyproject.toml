@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oxen"
+version = "2.0.0"
+description = "A Python-based task runner with a TUI frontend."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Saumitro Dasgupta", email = "sd@cs.stanford.edu" }]
+
+[tool.setuptools.packages.find]
+include = ["oxen*"]
+
+[tool.ruff]
+line-length = 200
+target-version = "py312"
+ignore = ["I001"]
+
+[tool.ruff.format]
+quote-style = "single"
