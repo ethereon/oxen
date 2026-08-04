@@ -264,7 +264,7 @@ class TUI(App[None]):
             if self._mounted:
                 self._subscribe(task)
                 self.post_message(TaskRegistered(task))
-                if self.auto_start and task.status is TaskStatus.PENDING:
+                if self.auto_start and task.auto_start is True and task.status is TaskStatus.PENDING:
                     self._schedule(task.run(), f'run {task.name}')
 
     def __iadd__(self, task: Task) -> Self:
@@ -341,7 +341,7 @@ class TUI(App[None]):
             self._subscribe(task)
         if self.auto_start:
             for task in self.tasks:
-                if task.status is TaskStatus.PENDING:
+                if task.auto_start is True and task.status is TaskStatus.PENDING:
                     self._schedule(task.run(), f'run {task.name}')
         task_list = self.query_one('#task-list', TaskList)
         if self.tasks:

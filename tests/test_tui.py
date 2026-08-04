@@ -21,6 +21,26 @@ class FakeTask(Task):
 
 
 class TUITest(unittest.IsolatedAsyncioTestCase):
+    async def test_auto_start_requires_task_flag(self) -> None:
+        enabled = FakeTask('enabled')
+        disabled = FakeTask('disabled')
+        disabled.auto_start = False
+        app = TUI(enabled, disabled)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            self.assertEqual(enabled.run_count, 1)
+            self.assertEqual(disabled.run_count, 0)
+
+            added_enabled = FakeTask('added-enabled')
+            added_disabled = FakeTask('added-disabled')
+            added_disabled.auto_start = False
+            app.add(added_enabled, added_disabled)
+            await pilot.pause()
+
+            self.assertEqual(added_enabled.run_count, 1)
+            self.assertEqual(added_disabled.run_count, 0)
+
     async def test_live_output_status_and_task_actions(self) -> None:
         first = FakeTask('first')
         second = FakeTask('second')
