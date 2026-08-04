@@ -21,6 +21,12 @@ class TaskOutput:
     def __init__(self):
         self.on_update = Publisher[str]()
 
+    def append(self, text: str) -> None:
+        """
+        Append text to the output and notify subscribers.
+        """
+        raise NotImplementedError('Subclasses must implement the append method.')
+
     def get_output(self) -> str:
         """
         Get the current output of the task.

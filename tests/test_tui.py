@@ -1,6 +1,6 @@
 import unittest
 
-from oxen.task import BufferedTaskOutput, Task, TaskStatus
+from oxen.task import Task, TaskStatus
 from oxen.tui import TaskListItem, TaskLog, TUI
 from textual.widgets import ContentSwitcher
 
@@ -31,8 +31,6 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(app.query(TaskListItem)), 2)
 
             output = first.output
-            if not isinstance(output, BufferedTaskOutput):
-                self.fail('FakeTask must use buffered output')
             output.append('hello\n')
             first.status = TaskStatus.FAILED
             await pilot.pause()
