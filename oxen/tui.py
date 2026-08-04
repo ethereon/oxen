@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Self, Literal
 
@@ -352,17 +352,19 @@ class TUI(App[None]):
         self._mounted = False
 
     def _subscribe(self, task: Task) -> None:
+        def post_status(status: TaskStatus) -> None:
+            self.post_message(TaskStatusChanged(task, status))
+
+        def post_output(output: str) -> None:
+            self.post_message(TaskOutputChanged(task, output))
+
         self._subscriptions.add(
-            task.on_status_change.subscribe(
-                lambda status, task=task: self.post_message(TaskStatusChanged(task, status)),
-            ),
-            task.output.on_update.subscribe(
-                lambda output, task=task: self.post_message(TaskOutputChanged(task, output)),
-            ),
+            task.on_status_change.subscribe(post_status),
+            task.output.on_update.subscribe(post_output),
         )
 
-    def _schedule(self, awaitable: Awaitable[Any], description: str) -> None:
-        operation = asyncio.create_task(awaitable, name=f'oxen: {description}')
+    def _schedule(self, coroutine: Coroutine, description: str) -> None:
+        operation = asyncio.create_task(coroutine, name=f'oxen: {description}')
         self._operations.add(operation)
 
         def completed(done: asyncio.Task[Any]) -> None:

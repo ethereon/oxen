@@ -1,7 +1,8 @@
 import unittest
 
-from oxen.task import Task, TaskStatus
+from oxen.task import BufferedTaskOutput, Task, TaskStatus
 from oxen.tui import TaskListItem, TaskLog, TUI
+from textual.widgets import ContentSwitcher
 
 
 class FakeTask(Task):
@@ -29,7 +30,10 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(len(app.query(TaskListItem)), 2)
 
-            first.output.append('hello\n')
+            output = first.output
+            if not isinstance(output, BufferedTaskOutput):
+                self.fail('FakeTask must use buffered output')
+            output.append('hello\n')
             first.status = TaskStatus.FAILED
             await pilot.pause()
 
@@ -52,14 +56,14 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
         app = TUI(task, auto_start=False)
         app.add_split_view('stacked', orientation='vertical', key='2')
         invoked: list[Task | None] = []
-        app.add_action('capture', lambda _app, selected: invoked.append(selected), key='c')
+        app.add_action('capture', lambda _, selected: invoked.append(selected), key='c')
 
         async with app.run_test() as pilot:
             await pilot.press('c', '2')
             await pilot.pause()
 
             self.assertEqual(invoked, [task])
-            self.assertEqual(app.query_one('#views').current, 'task-view-1')
+            self.assertEqual(app.query_one('#views', ContentSwitcher).current, 'task-view-1')
 
     async def test_default_binding_can_be_replaced(self) -> None:
         task = FakeTask('task')
