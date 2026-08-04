@@ -193,7 +193,7 @@ class DefaultTaskView(Horizontal):
 
 
 @dataclass(slots=True)
-class _View:
+class ViewSpec:
     name: str
     factory: ViewFactory
     widget_id: str
@@ -224,7 +224,7 @@ class TUI(App[None]):
         self._subscriptions = SubscriptionStore()
         self._operations: set[asyncio.Task[Any]] = set()
         self._actions: dict[str, ActionHandler] = {}
-        self._views: dict[str, _View] = {}
+        self._views: dict[str, ViewSpec] = {}
         self._view_order: list[str] = []
         self._mounted = False
 
@@ -309,7 +309,7 @@ class TUI(App[None]):
             raise RuntimeError('Views must be registered before the TUI starts')
         if not name or name in self._views:
             raise ValueError(f'Invalid or duplicate view name: {name!r}')
-        view = _View(name, factory, f'task-view-{len(self._views)}')
+        view = ViewSpec(name, factory, f'task-view-{len(self._views)}')
         self._views[name] = view
         self._view_order.append(name)
         if key:
