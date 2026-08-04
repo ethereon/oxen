@@ -129,13 +129,19 @@ class TaskLog(Log):
 
 
 class TaskHeader(Label):
-    def __init__(self, task: Task, colors: Mapping[TaskStatus, str]) -> None:
-        self.oxen_task = task
+    def __init__(
+        self,
+        task: Task | None,
+        colors: Mapping[TaskStatus, str],
+    ) -> None:
         self._colors = colors
-        super().__init__(_status_text(task, colors), classes='task-header')
+        super().__init__(
+            _status_text(task, colors) if task is not None else '',
+            classes='task-header',
+        )
 
-    def update_status(self) -> None:
-        self.update(_status_text(self.oxen_task, self._colors))
+    def update_task(self, task: Task | None) -> None:
+        self.update(_status_text(task, self._colors) if task is not None else '')
 
 
 class TaskPanel(Vertical):
@@ -145,7 +151,11 @@ class TaskPanel(Vertical):
 
     def __init__(self, task: Task, colors: Mapping[TaskStatus, str], **kwargs: Any) -> None:
         self.oxen_task = task
-        super().__init__(TaskHeader(task, colors), TaskLog(task), **kwargs)
+        self._header = TaskHeader(task, colors)
+        super().__init__(self._header, TaskLog(task), **kwargs)
+
+    def update_status(self) -> None:
+        self._header.update_task(self.oxen_task)
 
 
 type SplitViewOrientation = Literal['horizontal', 'vertical']
@@ -178,11 +188,19 @@ class TaskSplitView(Container):
 
 
 class DefaultTaskView(Horizontal):
-    def __init__(self, tasks: Iterable[Task], colors: Mapping[TaskStatus, str], **kwargs: Any) -> None:
+    def __init__(
+        self,
+        tasks: Iterable[Task],
+        selected_task: Task | None,
+        colors: Mapping[TaskStatus, str],
+        **kwargs: Any,
+    ) -> None:
         task_list = TaskList(tasks, colors, id='task-list')
+        self._header = TaskHeader(selected_task, colors)
+        self._log = TaskLog(id='selected-task-output')
         output = Vertical(
-            Label('Task output', classes='pane-title'),
-            TaskLog(id='selected-task-output'),
+            self._header,
+            self._log,
             id='output-pane',
         )
         super().__init__(
@@ -190,6 +208,10 @@ class DefaultTaskView(Horizontal):
             output,
             **kwargs,
         )
+
+    def display_task(self, task: Task | None) -> None:
+        self._header.update_task(task)
+        self._log.select(task)
 
 
 @dataclass(slots=True)
@@ -231,7 +253,7 @@ class TUI(App[None]):
         self.add(*tasks)
         self.add_view(
             'default',
-            lambda app: DefaultTaskView(app.tasks, app.status_colors),
+            lambda app: DefaultTaskView(app.tasks, app.selected_task, app.status_colors),
         )
 
         configured_bindings = {**DEFAULT_BINDINGS, **(bindings or {})}
@@ -380,16 +402,17 @@ class TUI(App[None]):
         if not isinstance(event.item, TaskListItem):
             return
         self.selected_task = event.item.oxen_task
-        for log in self.query(TaskLog):
-            log.select(self.selected_task)
+        self.query_one(DefaultTaskView).display_task(self.selected_task)
 
     def on_task_status_changed(self, message: TaskStatusChanged) -> None:
         for item in self.query(TaskListItem):
             if item.oxen_task is message.task:
                 item.update_status()
-        for header in self.query(TaskHeader):
-            if header.oxen_task is message.task:
-                header.update_status()
+        for panel in self.query(TaskPanel):
+            if panel.oxen_task is message.task:
+                panel.update_status()
+        if self.selected_task is message.task:
+            self.query_one(DefaultTaskView).display_task(message.task)
 
     def on_task_output_changed(self, message: TaskOutputChanged) -> None:
         for log in self.query(TaskLog):
