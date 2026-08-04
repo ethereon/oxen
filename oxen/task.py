@@ -10,6 +10,7 @@ class TaskStatus(Enum):
     RUNNING = 'running'
     COMPLETED = 'completed'
     FAILED = 'failed'
+    STOPPED = 'stopped'
 
 
 class TaskOutput:
@@ -45,12 +46,14 @@ class Task:
     Abstract base class for tasks.
     """
 
-    def __init__(self):
+    def __init__(self, name: str):
+        self.name = name
+        self.output = self.create_output()
+        self.auto_start = True
+        self._status = TaskStatus.PENDING
+
         # Published when the task's status changes.
         self.on_status_change = Publisher[TaskStatus]()
-
-        self.output = self.create_output()
-        self._status = TaskStatus.PENDING
 
     async def run(self) -> None:
         """

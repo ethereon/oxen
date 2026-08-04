@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Saumitro Dasgupta", email = "sd@cs.stanford.edu" }]
+dependencies = ["textual>=1.0,<9"]
 
 [tool.setuptools.packages.find]
 include = ["oxen*"]

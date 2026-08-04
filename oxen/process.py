@@ -30,13 +30,16 @@ class Process(Task):
         *args: str | bytes | os.PathLike[str] | os.PathLike[bytes],
         **kwargs: Any,
     ) -> None:
-        super().__init__()
-
         if not args:
             raise ValueError('Process requires at least one process argument.')
 
+        process_kwargs = dict(kwargs)
+        super().__init__(
+            name=process_kwargs.pop('name', None) or self._shell_command(args),
+        )
+
         self.args = args
-        self.kwargs = dict(kwargs)
+        self.kwargs = process_kwargs
         self.process: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
         self._runner: asyncio.Task[None] | None = None
@@ -89,7 +92,10 @@ class Process(Task):
                 await process.wait()
 
             self.returncode = process.returncode
-            self.status = TaskStatus.COMPLETED if self.returncode == 0 else TaskStatus.FAILED
+            if self._stop_requested:
+                self.status = TaskStatus.STOPPED
+            else:
+                self.status = TaskStatus.COMPLETED if self.returncode == 0 else TaskStatus.FAILED
         except asyncio.CancelledError:
             await self._terminate()
             self.returncode = self.process.returncode if self.process is not None else None
@@ -112,6 +118,8 @@ class Process(Task):
         await self._terminate()
         if self._runner is not None and self._runner is not asyncio.current_task():
             await self._run_complete.wait()
+        elif self.status is TaskStatus.PENDING:
+            self.status = TaskStatus.STOPPED
 
     async def _terminate(self) -> None:
         process = self.process
