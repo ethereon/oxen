@@ -80,7 +80,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
         app.add_action('capture', lambda _, selected: invoked.append(selected), key='c')
 
         async with app.run_test() as pilot:
-            await pilot.press('c', '2')
+            await pilot.press('2', 'c')
             task.status = TaskStatus.FAILED
             await pilot.pause()
 
