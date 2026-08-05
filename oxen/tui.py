@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 
-from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
+from collections.abc import Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
@@ -17,7 +17,10 @@ from .publisher import SubscriptionStore
 from .store import TaskOutputChange, TaskStatusChange, TaskStore
 from .task import Task, TaskStatus
 
-type ActionHandler = Callable[[TUI, Task | None], Any | Awaitable[Any]]
+# The return value of the action handler is opaque from the perspective
+# of the TUI. However, if an awaitable is returned, the TUI will await it.
+type ActionHandler = Callable[[TUI, Task | None], object]
+
 type ViewFactory = Callable[[TUI], Widget]
 
 ACTION_DESCRIPTIONS: dict[str, str] = {
