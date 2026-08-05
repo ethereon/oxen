@@ -20,6 +20,13 @@ from .task import Task, TaskStatus
 type ActionHandler = Callable[[TUI, Task | None], Any | Awaitable[Any]]
 type ViewFactory = Callable[[TUI], Widget]
 
+ACTION_DESCRIPTIONS: dict[str, str] = {
+    'quit': 'Quit',
+    'restart': 'Restart task',
+    'stop': 'Stop task',
+    'run': 'Run task',
+    'next_view': 'Next view',
+}
 
 DEFAULT_BINDINGS: dict[str, str | None] = {
     'quit': 'q',
@@ -296,16 +303,13 @@ class TUI(App[None]):
         )
 
         configured_bindings = {**DEFAULT_BINDINGS, **(bindings or {})}
-        descriptions = {
-            'quit': 'Quit',
-            'restart': 'Restart task',
-            'stop': 'Stop task',
-            'run': 'Run task',
-            'next_view': 'Next view',
-        }
         for action, key in configured_bindings.items():
             if key:
-                self.bind(key, action, description=descriptions.get(action, action.replace('_', ' ').title()))
+                self.bind(
+                    key,
+                    action,
+                    description=ACTION_DESCRIPTIONS[action],
+                )
 
     def compose(self) -> ComposeResult:
         views = []
@@ -351,7 +355,7 @@ class TUI(App[None]):
         """
         Register an action receiving `(tui, selected_task)`.
         """
-        if not name or name in {'quit', 'restart', 'stop', 'run', 'next_view'}:
+        if (not name) or (name in ACTION_DESCRIPTIONS):
             raise ValueError(f'Invalid or reserved custom action name: {name!r}')
         self._actions[name] = handler
         if key:
