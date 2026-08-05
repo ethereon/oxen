@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 
-from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Self, Literal
+from typing import Any, Literal, Protocol, Self, runtime_checkable
 
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -19,6 +19,22 @@ from .task import Task, TaskStatus
 
 type ActionHandler = Callable[[TUI, Task | None], Any | Awaitable[Any]]
 type ViewFactory = Callable[[TUI], Widget]
+
+
+@runtime_checkable
+class TaskView(Protocol):
+    """
+    The task-related behavior that the TUI expects from a view.
+    """
+
+    @property
+    def selected_task(self) -> Task | None: ...
+
+    async def add_task(self, task: Task) -> None: ...
+
+    def update_task_status(self, task: Task) -> None: ...
+
+    def append_task_output(self, task: Task, output: str) -> None: ...
 
 
 DEFAULT_BINDINGS: dict[str, str | None] = {
@@ -98,8 +114,8 @@ class TaskLog(Log):
     """
     A live task output widget.
 
-    Pass a task to pin the widget to it. With no task, it follows the task
-    selected in the application's default task list.
+    Pass a task to pin the widget to it. With no task, its owner can change the
+    displayed task with `select`.
     """
 
     def __init__(self, task: Task | None = None, **kwargs: Any) -> None:
@@ -108,8 +124,6 @@ class TaskLog(Log):
         self.follows_selection = task is None
 
     def on_mount(self) -> None:
-        if self.oxen_task is None and isinstance(self.app, TUI):
-            self.oxen_task = self.app.selected_task
         self.reload()
 
     def select(self, task: Task | None) -> None:
@@ -186,17 +200,35 @@ class TaskSplitView(Container):
     async def add_task(self, task: Task) -> None:
         await self.mount(TaskPanel(task, self._colors))
 
+    @property
+    def selected_task(self) -> None:
+        return None
 
-class DefaultTaskView(Horizontal):
+    def update_task_status(self, task: Task) -> None:
+        if panel := next((panel for panel in self.query(TaskPanel) if panel.oxen_task is task), None):
+            panel.update_status()
+
+    def append_task_output(self, task: Task, output: str) -> None:
+        for log in self.query(TaskLog):
+            log.append_output(task, output)
+
+
+class TaskBrowser(Horizontal):
+    """
+    Displays a list of tasks in a sidebar alongside a live output
+    pane for the selected task.
+    """
+
     def __init__(
         self,
         tasks: Iterable[Task],
-        selected_task: Task | None,
         colors: Mapping[TaskStatus, str],
         **kwargs: Any,
     ) -> None:
+        tasks = list(tasks)
+        self._selected_task = tasks[0] if tasks else None
         task_list = TaskList(tasks, colors, id='task-list')
-        self._header = TaskHeader(selected_task, colors)
+        self._header = TaskHeader(self._selected_task, colors)
         self._log = TaskLog(id='selected-task-output')
         output = Vertical(
             self._header,
@@ -209,7 +241,34 @@ class DefaultTaskView(Horizontal):
             **kwargs,
         )
 
-    def display_task(self, task: Task | None) -> None:
+    @property
+    def selected_task(self) -> Task | None:
+        return self._selected_task
+
+    def on_mount(self) -> None:
+        self.query_one(TaskList).focus()
+        self._log.select(self._selected_task)
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if isinstance(event.item, TaskListItem):
+            self._select(event.item.oxen_task)
+
+    async def add_task(self, task: Task) -> None:
+        await self.query_one(TaskList).add_task(task)
+        if self._selected_task is None:
+            self._select(task)
+
+    def update_task_status(self, task: Task) -> None:
+        if item := self.query_one(TaskList).item_for(task):
+            item.update_status()
+        if self._selected_task is task:
+            self._header.update_task(task)
+
+    def append_task_output(self, task: Task, output: str) -> None:
+        self._log.append_output(task, output)
+
+    def _select(self, task: Task) -> None:
+        self._selected_task = task
         self._header.update_task(task)
         self._log.select(task)
 
@@ -219,6 +278,7 @@ class ViewSpec:
     name: str
     factory: ViewFactory
     widget_id: str
+    widget: Widget | None = None
 
 
 class TUI(App[None]):
@@ -239,7 +299,6 @@ class TUI(App[None]):
     ) -> None:
         super().__init__(**kwargs)
         self.tasks: list[Task] = []
-        self.selected_task: Task | None = None
         self.auto_start = auto_start
         self.stop_tasks_on_exit = stop_tasks_on_exit
         self.status_colors = {**DEFAULT_STATUS_COLORS, **(status_colors or {})}
@@ -253,7 +312,7 @@ class TUI(App[None]):
         self.add(*tasks)
         self.add_view(
             'default',
-            lambda app: DefaultTaskView(app.tasks, app.selected_task, app.status_colors),
+            lambda app: TaskBrowser(app.tasks, app.status_colors),
         )
 
         configured_bindings = {**DEFAULT_BINDINGS, **(bindings or {})}
@@ -269,9 +328,20 @@ class TUI(App[None]):
                 self.bind(key, action, description=descriptions.get(action, action.replace('_', ' ').title()))
 
     def compose(self) -> ComposeResult:
-        views = [Container(view.factory(self), id=view.widget_id, classes='view-slot') for view in self._views.values()]
+        views = []
+        for view in self._views.values():
+            view.widget = view.factory(self)
+            views.append(Container(view.widget, id=view.widget_id, classes='view-slot'))
         yield ContentSwitcher(*views, initial=self._views['default'].widget_id, id='views')
         yield Footer()
+
+    @property
+    def selected_task(self) -> Task | None:
+        """
+        The task selected by the active view, if it supports selection.
+        """
+        view = self._active_task_view()
+        return view.selected_task if view is not None else None
 
     def add(self, *tasks: Task) -> None:
         """
@@ -281,8 +351,6 @@ class TUI(App[None]):
             if any(registered is task for registered in self.tasks):
                 raise ValueError(f'Task {task.name!r} is already registered')
             self.tasks.append(task)
-            if self.selected_task is None:
-                self.selected_task = task
             if self._mounted:
                 self._subscribe(task)
                 self.post_message(TaskRegistered(task))
@@ -365,9 +433,6 @@ class TUI(App[None]):
             for task in self.tasks:
                 if task.auto_start is True and task.status is TaskStatus.PENDING:
                     self._schedule(task.run(), f'run {task.name}')
-        task_list = self.query_one('#task-list', TaskList)
-        if self.tasks:
-            task_list.focus()
 
     def on_unmount(self) -> None:
         self._subscriptions.clear()
@@ -398,30 +463,17 @@ class TUI(App[None]):
 
         operation.add_done_callback(completed)
 
-    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        if not isinstance(event.item, TaskListItem):
-            return
-        self.selected_task = event.item.oxen_task
-        self.query_one(DefaultTaskView).display_task(self.selected_task)
-
     def on_task_status_changed(self, message: TaskStatusChanged) -> None:
-        for item in self.query(TaskListItem):
-            if item.oxen_task is message.task:
-                item.update_status()
-        for panel in self.query(TaskPanel):
-            if panel.oxen_task is message.task:
-                panel.update_status()
-        if self.selected_task is message.task:
-            self.query_one(DefaultTaskView).display_task(message.task)
+        for view in self._task_views():
+            view.update_task_status(message.task)
 
     def on_task_output_changed(self, message: TaskOutputChanged) -> None:
-        for log in self.query(TaskLog):
-            log.append_output(message.task, message.output)
+        for view in self._task_views():
+            view.append_task_output(message.task, message.output)
 
     async def on_task_registered(self, message: TaskRegistered) -> None:
-        await self.query_one(TaskList).add_task(message.task)
-        for split in self.query(TaskSplitView):
-            await split.add_task(message.task)
+        for view in self._task_views():
+            await view.add_task(message.task)
 
     async def action_quit(self) -> None:
         if self.stop_tasks_on_exit:
@@ -477,3 +529,13 @@ class TUI(App[None]):
         if self.selected_task is None:
             self.notify('No task is selected', severity='warning')
         return self.selected_task
+
+    def _task_views(self) -> Iterator[TaskView]:
+        return (view.widget for view in self._views.values() if isinstance(view.widget, TaskView))
+
+    def _active_task_view(self) -> TaskView | None:
+        if not self._mounted:
+            return None
+        switcher = self.query_one('#views', ContentSwitcher)
+        view = next((view for view in self._views.values() if view.widget_id == switcher.current), None)
+        return view.widget if view is not None and isinstance(view.widget, TaskView) else None
