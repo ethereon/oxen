@@ -394,22 +394,6 @@ class TUI(App[None]):
                 description=description or f'Show {name}',
             )
 
-    def add_split_view(
-        self,
-        name: str,
-        *,
-        orientation: SplitViewOrientation = 'horizontal',
-        key: str | None = None,
-    ) -> None:
-        """
-        Convenience helper for an all-task horizontal or vertical view.
-        """
-        self.add_view(
-            name,
-            lambda app: TaskSplitView(app.store, app.status_colors, orientation=orientation),
-            key=key,
-        )
-
     def on_mount(self) -> None:
         self._mounted = True
         if self.auto_start:

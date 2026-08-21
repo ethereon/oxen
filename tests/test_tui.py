@@ -2,7 +2,6 @@ import unittest
 
 from oxen.task import Task, TaskStatus
 from oxen.tui import TaskHeader, TaskListItem, TaskLog, TUI
-from textual.widgets import ContentSwitcher
 
 
 class FakeTask(Task):
@@ -71,22 +70,6 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertIs(app.selected_task, second)
             self.assertEqual(selected_header.content.plain, '● second')
-
-    async def test_custom_action_and_split_view_shortcuts(self) -> None:
-        task = FakeTask('task')
-        app = TUI(task, auto_start=False)
-        app.add_split_view('stacked', orientation='vertical', key='2')
-        invoked: list[Task | None] = []
-        app.add_action('capture', lambda _, selected: invoked.append(selected), key='c')
-
-        async with app.run_test() as pilot:
-            await pilot.press('2', 'c')
-            task.status = TaskStatus.FAILED
-            await pilot.pause()
-
-            self.assertEqual(invoked, [task])
-            self.assertEqual(app.query_one('#views', ContentSwitcher).current, 'task-view-1')
-            self.assertEqual(app.query_one('#task-view-1 TaskHeader', TaskHeader).content.plain, '● task')
 
     async def test_default_binding_can_be_replaced(self) -> None:
         task = FakeTask('task')
