@@ -120,18 +120,30 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(container.has_class('horizontal') for container in nested))
             self.assertTrue(any(container.has_class('vertical') for container in nested))
             self.assertEqual([panel.oxen_task for panel in layout.query(TaskPanel)], [first, second, third])
+            first_panel = next(panel for panel in layout.query(TaskPanel) if panel.oxen_task is first)
+            self.assertTrue(first_panel.has_focus_within)
 
             first.output.append('layout output\n')
             first.status = TaskStatus.FAILED
             await pilot.pause()
-            first_panel = next(panel for panel in layout.query(TaskPanel) if panel.oxen_task is first)
-            self.assertEqual(first_panel.query_one(TaskHeader).content.plain, '● first')
+            second_panel = next(panel for panel in layout.query(TaskPanel) if panel.oxen_task is second)
+            first_header = first_panel.query_one(TaskHeader)
+            second_header = second_panel.query_one(TaskHeader)
+            self.assertEqual(first_header.content.plain, '● first')
+            self.assertEqual(second_header.content.plain, '● second')
             self.assertIn('layout output', '\n'.join(str(line) for line in first_panel.query_one(TaskLog).lines))
+
+            self.assertTrue(await pilot.click(second_panel.query_one(TaskLog)))
+            await pilot.pause()
+            self.assertIs(app.selected_task, second)
+            self.assertFalse(first_panel.has_focus_within)
+            self.assertTrue(second_panel.has_focus_within)
 
             app.action_show_view('default')
             await pilot.press('m')
             await pilot.pause()
             self.assertEqual(switcher.current, app._views['Main'].widget_id)
+            self.assertTrue(second_panel.has_focus_within)
 
     def test_add_layout_reuses_registered_tasks_and_validates_shape(self) -> None:
         task = FakeTask('task')

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Self
 
 from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widget import Widget
@@ -211,10 +212,19 @@ class TaskSplitView(Container):
     def on_unmount(self) -> None:
         self._subscriptions.clear()
 
+    def on_show(self) -> None:
+        # Focus selected task
+        if log := next((log for log in self.query(TaskLog) if log.oxen_task is self._store.selected_task), None):
+            log.focus()
+
     def _update_task_status(self, change: TaskStatusChange) -> None:
         for panel in self.query(TaskPanel):
             if panel.oxen_task is change.task:
                 panel.update_status()
+
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        if panel := event.widget.query_ancestor(TaskPanel):
+            self._store.select(panel.oxen_task)
 
     def _append_task_output(self, change: TaskOutputChange) -> None:
         for log in self.query(TaskLog):
@@ -256,11 +266,13 @@ class TaskBrowser(Horizontal):
             self._store.on_task_status_change.subscribe(self._update_task_status),
             self._store.on_task_output_change.subscribe(self._append_task_output),
         )
-        self.query_one(TaskList).focus()
         self._select(self._store.selected_task)
 
     def on_unmount(self) -> None:
         self._subscriptions.clear()
+
+    def on_show(self) -> None:
+        self.query_one(TaskList).focus()
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if isinstance(event.item, TaskListItem):
