@@ -33,19 +33,19 @@ type TaskLayout = (
 )
 
 ACTION_DESCRIPTIONS: dict[str, str] = {
+    'restart': 'Restart Task',
+    'stop': 'Stop Task',
+    'run': 'Run Task',
+    'next_view': 'Next View',
     'quit': 'Quit',
-    'restart': 'Restart task',
-    'stop': 'Stop task',
-    'run': 'Run task',
-    'next_view': 'Next view',
 }
 
 DEFAULT_BINDINGS: dict[str, str | None] = {
-    'quit': 'q',
     'restart': 'r',
     'stop': 's',
     'run': 'g',
     'next_view': 'v',
+    'quit': 'q',
 }
 
 DEFAULT_STATUS_COLORS: dict[TaskStatus, str] = {
@@ -424,7 +424,7 @@ class TUI(App[None]):
             self.bind(
                 shortcut,
                 f'show_view({name!r})',
-                description=description or f'Show {name}',
+                description=description or name,
             )
 
     def add_layout(
