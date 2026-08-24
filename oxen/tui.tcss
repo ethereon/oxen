@@ -50,21 +50,21 @@ TaskLog {
     padding: 0 1;
 }
 
-TaskSplitView {
-    width: 100%;
-    height: 100%;
-}
-
-TaskSplitView.horizontal {
-    layout: horizontal;
-}
-
-TaskSplitView.vertical {
-    layout: vertical;
-}
-
 TaskPanel {
     width: 1fr;
     height: 1fr;
     border: round $primary-background;
+}
+
+.task-layout-split {
+    width: 1fr;
+    height: 1fr;
+}
+
+.task-layout-split.horizontal {
+    layout: horizontal;
+}
+
+.task-layout-split.vertical {
+    layout: vertical;
 }

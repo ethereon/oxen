@@ -23,6 +23,14 @@ type ActionHandler = Callable[[TUI, Task | None], object]
 
 type ViewFactory = Callable[[TUI], Widget]
 
+type TaskLayout = (
+    list[Task | TaskLayout]  # Vertically stacked
+    | tuple[Task | TaskLayout, ...]  # Horizontally stacked
+    # list[] is not covariant, so explicitly add list[Task] to
+    # allow things like `add_layout(app.tasks)``
+    | list[Task]
+)
+
 ACTION_DESCRIPTIONS: dict[str, str] = {
     'quit': 'Quit',
     'restart': 'Restart task',
@@ -152,36 +160,50 @@ class TaskPanel(Vertical):
         self._header.update_task(self.oxen_task)
 
 
-type SplitViewOrientation = Literal['horizontal', 'vertical']
-
-
 class TaskSplitView(Container):
     """
-    A built-in custom view that shows all tasks at once.
+    A recursively nested split view of task panels.
+
+    Lists stack their children vertically and tuples stack them horizontally.
     """
 
     def __init__(
         self,
+        layout: TaskLayout,
         store: TaskStore,
         colors: Mapping[TaskStatus, str],
-        *,
-        orientation: SplitViewOrientation = 'horizontal',
         **kwargs: Any,
     ) -> None:
-        if orientation not in {'horizontal', 'vertical'}:
-            raise ValueError("orientation must be 'horizontal' or 'vertical'")
         self._store = store
-        self._colors = colors
         self._subscriptions = SubscriptionStore()
         super().__init__(
-            *(TaskPanel(task, colors) for task in store.tasks),
-            classes=f'task-split {orientation}',
+            *self._children(layout, colors),
+            classes=f'task-layout-split {self._orientation(layout)}',
             **kwargs,
         )
 
+    @staticmethod
+    def _orientation(layout: TaskLayout) -> Literal['horizontal', 'vertical']:
+        return 'vertical' if isinstance(layout, list) else 'horizontal'
+
+    @classmethod
+    def _children(
+        cls,
+        layout: TaskLayout,
+        colors: Mapping[TaskStatus, str],
+    ) -> list[Widget]:
+        return [
+            TaskPanel(item, colors)
+            if isinstance(item, Task)
+            else Container(
+                *cls._children(item, colors),
+                classes=f'task-layout-split {cls._orientation(item)}',
+            )
+            for item in layout
+        ]
+
     def on_mount(self) -> None:
         self._subscriptions.add(
-            self._store.on_task_added.subscribe(self._add_task),
             self._store.on_task_status_change.subscribe(self._update_task_status),
             self._store.on_task_output_change.subscribe(self._append_task_output),
         )
@@ -189,12 +211,10 @@ class TaskSplitView(Container):
     def on_unmount(self) -> None:
         self._subscriptions.clear()
 
-    def _add_task(self, task: Task) -> None:
-        self.mount(TaskPanel(task, self._colors))
-
     def _update_task_status(self, change: TaskStatusChange) -> None:
-        if panel := next((panel for panel in self.query(TaskPanel) if panel.oxen_task is change.task), None):
-            panel.update_status()
+        for panel in self.query(TaskPanel):
+            if panel.oxen_task is change.task:
+                panel.update_status()
 
     def _append_task_output(self, change: TaskOutputChange) -> None:
         for log in self.query(TaskLog):
@@ -297,6 +317,7 @@ class TUI(App[None]):
         self._actions: dict[str, ActionHandler] = {}
         self._views: dict[str, ViewSpec] = {}
         self._view_order: list[str] = []
+        self._default_view = 'default'
         self._mounted = False
 
         self.add(*tasks)
@@ -319,7 +340,7 @@ class TUI(App[None]):
         for view in self._views.values():
             view.widget = view.factory(self)
             views.append(Container(view.widget, id=view.widget_id, classes='view-slot'))
-        yield ContentSwitcher(*views, initial=self._views['default'].widget_id, id='views')
+        yield ContentSwitcher(*views, initial=self._views[self._default_view].widget_id, id='views')
         yield Footer()
 
     @property
@@ -374,7 +395,7 @@ class TUI(App[None]):
         name: str,
         factory: ViewFactory,
         *,
-        key: str | None = None,
+        shortcut: str | None = None,
         description: str | None = None,
     ) -> None:
         """
@@ -387,12 +408,71 @@ class TUI(App[None]):
         view = ViewSpec(name, factory, f'task-view-{len(self._views)}')
         self._views[name] = view
         self._view_order.append(name)
-        if key:
+        if shortcut:
             self.bind(
-                key,
+                shortcut,
                 f'show_view({name!r})',
                 description=description or f'Show {name}',
             )
+
+    def add_layout(
+        self,
+        layout: TaskLayout,
+        *,
+        name: str,
+        default: bool = False,
+        shortcut: str | None = None,
+    ) -> None:
+        """
+        Register a recursively nested split view and all tasks it contains.
+
+        Lists stack their children vertically and tuples stack their children
+        horizontally. Lists and tuples can be nested in any combination.
+
+        New tasks provided as part of the layout are automatically added.
+        """
+        normalized, tasks = self._normalize_layout(layout)
+        self.add_view(
+            name,
+            lambda app: TaskSplitView(normalized, app.store, app.status_colors),
+            shortcut=shortcut,
+        )
+        if default:
+            self._default_view = name
+
+        registered = {id(task) for task in self.tasks}
+        self.add(*(task for task in tasks if id(task) not in registered))
+
+    @staticmethod
+    def _normalize_layout(layout: TaskLayout) -> tuple[TaskLayout, list[Task]]:
+        tasks: list[Task] = []
+        seen_tasks: set[int] = set()
+        active_containers: set[int] = set()
+
+        def normalize(value: object, path: str) -> Task | TaskLayout:
+            if isinstance(value, Task):
+                if id(value) not in seen_tasks:
+                    seen_tasks.add(id(value))
+                    tasks.append(value)
+                return value
+            if not isinstance(value, (list, tuple)):
+                raise TypeError(f'{path} must be a Task, list, or tuple')
+            if not value:
+                raise ValueError(f'{path} must not be empty')
+            if id(value) in active_containers:
+                raise ValueError(f'{path} contains a recursive container')
+
+            active_containers.add(id(value))
+            try:
+                children = (normalize(item, f'{path}[{index}]') for index, item in enumerate(value))
+                return list(children) if isinstance(value, list) else tuple(children)
+            finally:
+                active_containers.remove(id(value))
+
+        normalized = normalize(layout, 'layout')
+        if isinstance(normalized, Task):
+            raise TypeError('layout must be a list or tuple')
+        return normalized, tasks
 
     def on_mount(self) -> None:
         self._mounted = True

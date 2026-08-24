@@ -1,7 +1,10 @@
 import unittest
 
+from textual.containers import Container
+from textual.widgets import ContentSwitcher
+
 from oxen.task import Task, TaskStatus
-from oxen.tui import TaskHeader, TaskListItem, TaskLog, TUI
+from oxen.tui import TaskHeader, TaskSplitView, TaskListItem, TaskLog, TaskPanel, TUI
 
 
 class FakeTask(Task):
@@ -83,6 +86,63 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
             await pilot.press('x')
             await pilot.pause()
             self.assertEqual(task.run_count, 1)
+
+    async def test_add_layout_registers_tasks_and_builds_nested_splits(self) -> None:
+        first = FakeTask('first')
+        second = FakeTask('second')
+        third = FakeTask('third')
+        app = TUI(auto_start=False)
+        app.add_layout(
+            [
+                (first, second),
+                [(third,)],
+            ],
+            name='Main',
+            default=True,
+            shortcut='m',
+        )
+
+        self.assertEqual(app.tasks, [first, second, third])
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            switcher = app.query_one('#views', ContentSwitcher)
+            self.assertEqual(switcher.current, app._views['Main'].widget_id)
+
+            layout = app.query_one(TaskSplitView)
+            self.assertTrue(layout.has_class('vertical'))
+            top_row = layout.children[0]
+            nested_column = layout.children[1]
+            bottom_row = nested_column.children[0]
+            self.assertTrue(top_row.has_class('horizontal'))
+            self.assertTrue(nested_column.has_class('vertical'))
+            self.assertTrue(bottom_row.has_class('horizontal'))
+            nested = [container for container in layout.query(Container) if not isinstance(container, TaskPanel)]
+            self.assertTrue(any(container.has_class('horizontal') for container in nested))
+            self.assertTrue(any(container.has_class('vertical') for container in nested))
+            self.assertEqual([panel.oxen_task for panel in layout.query(TaskPanel)], [first, second, third])
+
+            first.output.append('layout output\n')
+            first.status = TaskStatus.FAILED
+            await pilot.pause()
+            first_panel = next(panel for panel in layout.query(TaskPanel) if panel.oxen_task is first)
+            self.assertEqual(first_panel.query_one(TaskHeader).content.plain, '● first')
+            self.assertIn('layout output', '\n'.join(str(line) for line in first_panel.query_one(TaskLog).lines))
+
+            app.action_show_view('default')
+            await pilot.press('m')
+            await pilot.pause()
+            self.assertEqual(switcher.current, app._views['Main'].widget_id)
+
+    def test_add_layout_reuses_registered_tasks_and_validates_shape(self) -> None:
+        task = FakeTask('task')
+        app = TUI(task, auto_start=False)
+        app.add_layout([(task, task)], name='Repeated')
+        self.assertEqual(app.tasks, [task])
+
+        with self.assertRaisesRegex(ValueError, 'must not be empty'):
+            app.add_layout([], name='Empty')
+        with self.assertRaisesRegex(TypeError, 'must be a Task, list, or tuple'):
+            app.add_layout([[object()]], name='Invalid')
 
 
 if __name__ == '__main__':
