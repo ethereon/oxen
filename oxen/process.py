@@ -155,3 +155,18 @@ class Process(Task):
             return os.fsdecode(args[0])
 
         return shlex.join([os.fsdecode(arg) for arg in args])
+
+
+class Shell(Process):
+    """
+    A task that runs a shell command.
+    Equivalent to Process(..., shell=True).
+    """
+
+    def __init__(
+        self,
+        command: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        **kwargs: Any,
+    ) -> None:
+        kwargs['shell'] = True
+        super().__init__(command, **kwargs)
