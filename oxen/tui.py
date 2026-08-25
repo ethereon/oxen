@@ -17,6 +17,7 @@ from textual.widgets import ContentSwitcher, Footer, Label, ListItem, ListView, 
 from .publisher import SubscriptionStore
 from .store import TaskOutputChange, TaskStatusChange, TaskStore
 from .task import Task, TaskStatus
+from .terminal import TerminalBuffer
 
 # The return value of the action handler is opaque from the perspective
 # of the TUI. However, if an awaitable is returned, the TUI will await it.
@@ -111,6 +112,8 @@ class TaskLog(Log):
         super().__init__(**kwargs)
         self.oxen_task = task
         self.follows_selection = task is None
+        self._terminal = TerminalBuffer()
+        self._rendered_output = ''
 
     def on_mount(self) -> None:
         self.reload()
@@ -123,12 +126,25 @@ class TaskLog(Log):
 
     def reload(self) -> None:
         self.clear()
+        self._terminal.reset()
+        self._rendered_output = ''
         if self.oxen_task is not None:
-            self.write(self.oxen_task.output.get_output())
+            self._terminal.feed(self.oxen_task.output.get_output())
+            self._sync_output()
 
     def append_output(self, task: Task, output: str) -> None:
         if task is self.oxen_task:
-            self.write(output)
+            self._terminal.feed(output)
+            self._sync_output()
+
+    def _sync_output(self) -> None:
+        rendered_output = self._terminal.render()
+        if rendered_output.startswith(self._rendered_output):
+            self.write(rendered_output[len(self._rendered_output) :])
+        else:
+            self.clear()
+            self.write(rendered_output)
+        self._rendered_output = rendered_output
 
 
 class TaskHeader(Label):

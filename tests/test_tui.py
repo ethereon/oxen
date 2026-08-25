@@ -74,6 +74,39 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
             self.assertIs(app.selected_task, second)
             self.assertEqual(selected_header.content.plain, '● second')
 
+    async def test_task_output_interprets_terminal_control_sequences(self) -> None:
+        task = FakeTask('terminal')
+        app = TUI(task, auto_start=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            output = task.output
+            output.append('\x1b[31mold screen\x1b[0m\n')
+            output.append('\x1b[2')
+            output.append('J\x1b[Hprogress: 10%')
+            output.append('\rprogress: 20%')
+            output.append('\b\b\b25%\n')
+            await pilot.pause()
+
+            log = app.query_one('#selected-task-output', TaskLog)
+            self.assertEqual([str(line) for line in log.lines], ['progress: 25%', ''])
+
+    async def test_task_log_replays_controls_when_switching_tasks(self) -> None:
+        first = FakeTask('first')
+        second = FakeTask('second')
+        first.output.append('obsolete\n\x1b[2J\x1b[Hcurrent')
+        app = TUI(first, second, auto_start=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            log = app.query_one('#selected-task-output', TaskLog)
+            self.assertEqual([str(line) for line in log.lines], ['current'])
+
+            await pilot.press('down')
+            await pilot.press('up')
+            await pilot.pause()
+            self.assertEqual([str(line) for line in log.lines], ['current'])
+
     async def test_default_binding_can_be_replaced(self) -> None:
         task = FakeTask('task')
         app = TUI(task, auto_start=False, bindings={'restart': 'x'})
