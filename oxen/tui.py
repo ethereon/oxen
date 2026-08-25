@@ -20,10 +20,10 @@ from .task import Task, TaskStatus
 from .terminal import TerminalBuffer
 
 # The return value of the action handler is opaque from the perspective
-# of the TUI. However, if an awaitable is returned, the TUI will await it.
-type ActionHandler = Callable[[TUI, Task | None], object]
+# of Oxen. However, if an awaitable is returned, Oxen will await it.
+type ActionHandler = Callable[[Oxen, Task | None], object]
 
-type ViewFactory = Callable[[TUI], Widget]
+type ViewFactory = Callable[[Oxen], Widget]
 
 type TaskLayout = (
     list[Task | TaskLayout]  # Vertically stacked
@@ -335,7 +335,7 @@ class ViewSpec:
     widget: Widget | None = None
 
 
-class TUI(App[None]):
+class Oxen(App[None]):
     """
     Task runner with a text-based user interface.
     """
@@ -399,7 +399,7 @@ class TUI(App[None]):
 
     def add(self, *tasks: Task) -> None:
         """
-        Register tasks with the TUI.
+        Register tasks with Oxen.
         """
         for task in tasks:
             self.store.add(task)
@@ -445,7 +445,7 @@ class TUI(App[None]):
         Register a named view factory before the app starts.
         """
         if self._mounted:
-            raise RuntimeError('Views must be registered before the TUI starts')
+            raise RuntimeError('Views must be registered before Oxen starts')
         if not name or name in self._views:
             raise ValueError(f'Invalid or duplicate view name: {name!r}')
         view = ViewSpec(name, factory, f'task-view-{len(self._views)}')

@@ -4,7 +4,7 @@ from textual.containers import Container
 from textual.widgets import ContentSwitcher
 
 from oxen.task import Task, TaskStatus
-from oxen.tui import TaskHeader, TaskSplitView, TaskListItem, TaskLog, TaskPanel, TUI
+from oxen.tui import Oxen, TaskHeader, TaskSplitView, TaskListItem, TaskLog, TaskPanel
 
 
 class FakeTask(Task):
@@ -22,12 +22,12 @@ class FakeTask(Task):
         self.status = TaskStatus.STOPPED
 
 
-class TUITest(unittest.IsolatedAsyncioTestCase):
+class OxenTest(unittest.IsolatedAsyncioTestCase):
     async def test_auto_start_requires_task_flag(self) -> None:
         enabled = FakeTask('enabled')
         disabled = FakeTask('disabled')
         disabled.auto_start = False
-        app = TUI(enabled, disabled)
+        app = Oxen(enabled, disabled)
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -46,7 +46,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
     async def test_live_output_status_and_task_actions(self) -> None:
         first = FakeTask('first')
         second = FakeTask('second')
-        app = TUI(first, second, auto_start=False)
+        app = Oxen(first, second, auto_start=False)
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -76,7 +76,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
 
     async def test_task_output_interprets_terminal_control_sequences(self) -> None:
         task = FakeTask('terminal')
-        app = TUI(task, auto_start=False)
+        app = Oxen(task, auto_start=False)
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -95,7 +95,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
         first = FakeTask('first')
         second = FakeTask('second')
         first.output.append('obsolete\n\x1b[2J\x1b[Hcurrent')
-        app = TUI(first, second, auto_start=False)
+        app = Oxen(first, second, auto_start=False)
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -109,7 +109,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_binding_can_be_replaced(self) -> None:
         task = FakeTask('task')
-        app = TUI(task, auto_start=False, bindings={'restart': 'x'})
+        app = Oxen(task, auto_start=False, bindings={'restart': 'x'})
 
         async with app.run_test() as pilot:
             await pilot.press('r')
@@ -124,7 +124,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
         first = FakeTask('first')
         second = FakeTask('second')
         third = FakeTask('third')
-        app = TUI(auto_start=False)
+        app = Oxen(auto_start=False)
         app.add_layout(
             [
                 (first, second),
@@ -180,7 +180,7 @@ class TUITest(unittest.IsolatedAsyncioTestCase):
 
     def test_add_layout_reuses_registered_tasks_and_validates_shape(self) -> None:
         task = FakeTask('task')
-        app = TUI(task, auto_start=False)
+        app = Oxen(task, auto_start=False)
         app.add_layout([(task, task)], name='Repeated')
         self.assertEqual(app.tasks, [task])
 
