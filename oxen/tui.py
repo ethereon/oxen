@@ -114,8 +114,10 @@ class TaskLog(Log):
         self.follows_selection = task is None
         self._terminal = TerminalBuffer()
         self._rendered_output = ''
+        self._sync_pending = False
 
     def on_mount(self) -> None:
+        self._sync_pending = False
         self.reload()
 
     def select(self, task: Task | None) -> None:
@@ -135,7 +137,20 @@ class TaskLog(Log):
     def append_output(self, task: Task, output: str) -> None:
         if task is self.oxen_task:
             self._terminal.feed(output)
+            self._schedule_sync()
+
+    def _schedule_sync(self) -> None:
+        if self._sync_pending:
+            return
+
+        self._sync_pending = True
+        if not self.call_after_refresh(self._flush_output):
+            self._sync_pending = False
             self._sync_output()
+
+    def _flush_output(self) -> None:
+        self._sync_pending = False
+        self._sync_output()
 
     def _sync_output(self) -> None:
         rendered_output = self._terminal.render()
