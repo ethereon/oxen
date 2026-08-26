@@ -67,6 +67,14 @@ class Process(Task):
         spawn_kwargs.setdefault('stdout', asyncio.subprocess.PIPE)
         spawn_kwargs.setdefault('stderr', asyncio.subprocess.PIPE)
 
+        # Configure subprocess environment vars
+        supplied_env = spawn_kwargs.get('env')
+        env = dict(os.environ if supplied_env is None else supplied_env)
+        # Disable Python output buffering unless the caller explicitly configures it.
+        # Otherwise, output may be delayed until Python flushes its buffers.
+        env.setdefault('PYTHONUNBUFFERED', '1')
+        spawn_kwargs['env'] = env
+
         self.returncode = None
         self.process = None
         self._stop_requested = False
