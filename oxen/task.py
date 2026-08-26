@@ -35,6 +35,10 @@ class TaskOutput:
 
 
 class BufferedTaskOutput(TaskOutput):
+    """
+    StringIO backed task output.
+    """
+
     def __init__(self):
         super().__init__()
         self._output = io.StringIO()
@@ -54,7 +58,7 @@ class Task:
 
     def __init__(self, name: str):
         self.name = name
-        self.output = self.create_output()
+        self.output = self._create_output()
         self.auto_start = True
         self._status = TaskStatus.PENDING
 
@@ -62,9 +66,6 @@ class Task:
         self.on_status_change = Publisher[TaskStatus]()
 
     async def run(self) -> None:
-        """
-        Run the task.
-        """
         raise NotImplementedError('Subclasses must implement the run method.')
 
     async def stop(self) -> None:
@@ -84,5 +85,5 @@ class Task:
             self._status = new_status
             self.on_status_change.publish(new_status)
 
-    def create_output(self) -> TaskOutput:
+    def _create_output(self) -> TaskOutput:
         return BufferedTaskOutput()
