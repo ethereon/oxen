@@ -4,6 +4,7 @@ import asyncio
 import codecs
 import os
 import shlex
+import signal
 
 from collections.abc import Sequence
 from typing import Any
@@ -31,6 +32,9 @@ class Process(Task):
             For options, see: https://docs.python.org/3/library/codecs.html
             Defaults to 'replace'.
 
+        terminate_timeout: Seconds to wait after terminating a process before killing it.
+            Defaults to 3 seconds.
+
         **spawn_kwargs: Additional keyword arguments forwarded to the selected
             asyncio subprocess function, based on `shell`:
                 asyncio.create_subprocess_shell      (if shell)
@@ -38,6 +42,7 @@ class Process(Task):
     """
 
     _READ_SIZE = 64 * 1024
+    _TERMINATE_POLL_INTERVAL = 0.01
 
     def __init__(
         self,
@@ -46,6 +51,7 @@ class Process(Task):
         shell: bool = False,
         encoding: str = 'utf-8',
         decoding_errors: str = 'replace',
+        terminate_timeout: float = 3.0,
         **spawn_kwargs: Any,
     ) -> None:
         if not args:
@@ -57,6 +63,7 @@ class Process(Task):
         self.shell = shell
         self.encoding = encoding
         self.decoding_errors = decoding_errors
+        self.terminate_timeout = terminate_timeout
         self.spawn_kwargs: dict[str, Any] = spawn_kwargs
         self.process: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
@@ -65,6 +72,7 @@ class Process(Task):
         self._run_complete = asyncio.Event()
         self._run_complete.set()
         self._stop_requested = False
+        self._process_group_id: int | None = None
 
     async def run(self) -> None:
         """
@@ -78,6 +86,15 @@ class Process(Task):
         spawn_kwargs.setdefault('stdout', asyncio.subprocess.PIPE)
         spawn_kwargs.setdefault('stderr', asyncio.subprocess.PIPE)
 
+        # Isolate subprocess trees so stopping a task terminates pipelines and their descendants.
+        owns_process_group = False
+        if os.name == 'posix':
+            if 'start_new_session' not in spawn_kwargs and 'process_group' not in spawn_kwargs:
+                spawn_kwargs['start_new_session'] = True
+                owns_process_group = True
+            elif spawn_kwargs.get('start_new_session') is True or spawn_kwargs.get('process_group') == 0:
+                owns_process_group = True
+
         # Configure subprocess environment vars
         supplied_env = spawn_kwargs.get('env')
         env = dict(os.environ if supplied_env is None else supplied_env)
@@ -88,6 +105,7 @@ class Process(Task):
 
         self.returncode = None
         self.process = None
+        self._process_group_id = None
         self._stop_requested = False
         self._runner = asyncio.current_task()
         self._run_complete.clear()
@@ -100,8 +118,10 @@ class Process(Task):
             else:
                 process = await asyncio.create_subprocess_exec(*self.args, **spawn_kwargs)
             self.process = process
+            if owns_process_group:
+                self._process_group_id = process.pid
             if self._stop_requested and process.returncode is None:
-                process.terminate()
+                await self._terminate()
 
             async with asyncio.TaskGroup() as readers:
                 if process.stdout is not None:
@@ -127,6 +147,7 @@ class Process(Task):
             raise
         finally:
             self._runner = None
+            self._process_group_id = None
             self._run_complete.set()
 
     async def stop(self) -> None:
@@ -142,14 +163,60 @@ class Process(Task):
 
     async def _terminate(self) -> None:
         process = self.process
-        if process is None or process.returncode is not None:
+        if process is None:
             return
 
+        process_group_id = self._process_group_id
+        self._send_terminate(process, process_group_id)
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.terminate_timeout
+
         try:
-            process.terminate()
+            async with asyncio.timeout(max(0, deadline - loop.time())):
+                await process.wait()
+        except TimeoutError:
+            pass
+
+        while self._termination_target_exists(process, process_group_id) and loop.time() < deadline:
+            await asyncio.sleep(self._TERMINATE_POLL_INTERVAL)
+
+        if self._termination_target_exists(process, process_group_id):
+            self._send_kill(process, process_group_id)
+
+        await process.wait()
+
+    @staticmethod
+    def _send_terminate(process: asyncio.subprocess.Process, process_group_id: int | None) -> None:
+        try:
+            if process_group_id is not None:
+                os.killpg(process_group_id, signal.SIGTERM)
+            elif process.returncode is None:
+                process.terminate()
         except ProcessLookupError:
             pass
-        await process.wait()
+
+    @staticmethod
+    def _send_kill(process: asyncio.subprocess.Process, process_group_id: int | None) -> None:
+        try:
+            if process_group_id is not None:
+                os.killpg(process_group_id, signal.SIGKILL)
+            elif process.returncode is None:
+                process.kill()
+        except ProcessLookupError:
+            pass
+
+    @staticmethod
+    def _termination_target_exists(process: asyncio.subprocess.Process, process_group_id: int | None) -> bool:
+        if process_group_id is None:
+            return process.returncode is None
+
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            return False
+        else:
+            return True
 
     async def _publish_stream(
         self,
