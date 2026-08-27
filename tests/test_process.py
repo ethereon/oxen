@@ -25,12 +25,34 @@ class ShellProcessGroupTest(unittest.IsolatedAsyncioTestCase):
 
         await self.assert_stops(task)
 
-    async def assert_stops(self, task: Shell) -> None:
+    async def test_pty_streams_line_buffered_pipeline_output(self) -> None:
+        command = "(printf 'error\\n'; sleep 60) | grep error"
+        task = Shell(command, pty=True, terminate_timeout=0.1)
+
+        await self.assert_stops(task, expected_output='error')
+
+    async def test_pty_merges_terminal_stdout_and_stderr(self) -> None:
+        python = shlex.quote(sys.executable)
+        child_code = 'import sys; print(sys.stdout.isatty()); print(sys.stderr.isatty(), file=sys.stderr)'
+        task = Shell(f'{python} -c {shlex.quote(child_code)}', pty=True)
+
+        await task.run()
+
+        self.assertEqual(task.status, TaskStatus.COMPLETED)
+        self.assertEqual(task.output.get_output().count('True'), 2)
+
+    async def test_pty_rejects_custom_output_streams(self) -> None:
+        task = Shell('true', pty=True, stdout=asyncio.subprocess.PIPE)
+
+        with self.assertRaisesRegex(ValueError, 'custom stdout'):
+            await task.run()
+
+    async def assert_stops(self, task: Shell, expected_output: str = 'ready') -> None:
         runner = asyncio.create_task(task.run())
 
         try:
             async with asyncio.timeout(2):
-                while 'ready' not in task.output.get_output():
+                while expected_output not in task.output.get_output():
                     await asyncio.sleep(0.01)
 
             async with asyncio.timeout(2):

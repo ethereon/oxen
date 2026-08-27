@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import errno
 import os
 import shlex
 import signal
@@ -23,6 +24,12 @@ class Process(Task):
             By default, a name is derived from the process arguments.
 
         shell: Whether to treat the invocation as a shell command.
+            Defaults to False.
+
+        pty: Whether to connect stdout and stderr to a pseudo-terminal instead
+            of separate pipes. This can prevent programs from block-buffering
+            output when they are not connected to a terminal. PTY output is
+            merged and may contain terminal-specific formatting.
             Defaults to False.
 
         encoding: The encoding used to decode process output.
@@ -49,6 +56,7 @@ class Process(Task):
         *args: str | bytes | os.PathLike[str] | os.PathLike[bytes],
         name: str | None = None,
         shell: bool = False,
+        pty: bool = False,
         encoding: str = 'utf-8',
         decoding_errors: str = 'replace',
         terminate_timeout: float = 3.0,
@@ -61,6 +69,7 @@ class Process(Task):
 
         self.args = args
         self.shell = shell
+        self.pty = pty
         self.encoding = encoding
         self.decoding_errors = decoding_errors
         self.terminate_timeout = terminate_timeout
@@ -83,8 +92,20 @@ class Process(Task):
 
         spawn_kwargs = self.spawn_kwargs.copy()
 
-        spawn_kwargs.setdefault('stdout', asyncio.subprocess.PIPE)
-        spawn_kwargs.setdefault('stderr', asyncio.subprocess.PIPE)
+        # A pseudoterminal (PTY) encourages interactive flushing.
+        # Otherwise, capture them with separate pipes.
+        pty_main_fd: int | None = None
+        pty_sub_fd: int | None = None
+        if self.pty:
+            if os.name != 'posix':
+                raise NotImplementedError('PTY-backed processes are only supported on POSIX systems.')
+            conflicting_streams = {'stdout', 'stderr'} & spawn_kwargs.keys()
+            if conflicting_streams:
+                streams = ', '.join(sorted(conflicting_streams))
+                raise ValueError(f'pty=True cannot be combined with custom {streams}.')
+        else:
+            spawn_kwargs.setdefault('stdout', asyncio.subprocess.PIPE)
+            spawn_kwargs.setdefault('stderr', asyncio.subprocess.PIPE)
 
         # Isolate subprocess trees so stopping a task terminates pipelines and their descendants.
         owns_process_group = False
@@ -112,11 +133,19 @@ class Process(Task):
         self.status = TaskStatus.RUNNING
 
         try:
-            if self.shell:
-                command = self._shell_command(self.args)
-                process = await asyncio.create_subprocess_shell(command, **spawn_kwargs)
-            else:
-                process = await asyncio.create_subprocess_exec(*self.args, **spawn_kwargs)
+            if self.pty:
+                pty_main_fd, pty_sub_fd = os.openpty()
+                spawn_kwargs['stdout'] = pty_sub_fd
+                spawn_kwargs['stderr'] = pty_sub_fd
+            try:
+                if self.shell:
+                    command = self._shell_command(self.args)
+                    process = await asyncio.create_subprocess_shell(command, **spawn_kwargs)
+                else:
+                    process = await asyncio.create_subprocess_exec(*self.args, **spawn_kwargs)
+            finally:
+                if pty_sub_fd is not None:
+                    os.close(pty_sub_fd)
             self.process = process
             if owns_process_group:
                 self._process_group_id = process.pid
@@ -124,7 +153,10 @@ class Process(Task):
                 await self._terminate()
 
             async with asyncio.TaskGroup() as readers:
-                if process.stdout is not None:
+                if pty_main_fd is not None:
+                    readers.create_task(self._publish_pty(pty_main_fd, self.encoding, self.decoding_errors))
+                    pty_main_fd = None
+                elif process.stdout is not None:
                     readers.create_task(self._publish_stream(process.stdout, self.encoding, self.decoding_errors))
                 if process.stderr is not None and process.stderr is not process.stdout:
                     readers.create_task(self._publish_stream(process.stderr, self.encoding, self.decoding_errors))
@@ -146,6 +178,8 @@ class Process(Task):
             self.status = TaskStatus.FAILED
             raise
         finally:
+            if pty_main_fd is not None:
+                os.close(pty_main_fd)
             self._runner = None
             self._process_group_id = None
             self._run_complete.set()
@@ -232,6 +266,46 @@ class Process(Task):
 
         if output := decoder.decode(b'', final=True):
             self.output.append(output)
+
+    async def _publish_pty(self, fd: int, encoding: str, decoding_errors: str) -> None:
+        decoder = codecs.getincrementaldecoder(encoding)(errors=decoding_errors)
+        loop = asyncio.get_running_loop()
+        complete = loop.create_future()
+
+        def finish(error: BaseException | None = None) -> None:
+            loop.remove_reader(fd)
+            if complete.done():
+                return
+            if error is None:
+                complete.set_result(None)
+            else:
+                complete.set_exception(error)
+
+        def read_ready() -> None:
+            try:
+                chunk = os.read(fd, self._READ_SIZE)
+            except OSError as error:
+                # Linux reports EIO when the final sub descriptor closes.
+                finish(None if error.errno == errno.EIO else error)
+                return
+
+            if chunk:
+                try:
+                    if output := decoder.decode(chunk):
+                        self.output.append(output)
+                except BaseException as error:
+                    finish(error)
+            else:
+                finish()
+
+        loop.add_reader(fd, read_ready)
+        try:
+            await complete
+            if output := decoder.decode(b'', final=True):
+                self.output.append(output)
+        finally:
+            loop.remove_reader(fd)
+            os.close(fd)
 
     @staticmethod
     def _shell_command(

@@ -18,7 +18,7 @@ include = ["oxen*"]
 [tool.ruff]
 line-length = 200
 target-version = "py312"
-ignore = ["I001"]
+ignore = ["I001", "BLE001"]
 
 [tool.ruff.format]
 quote-style = "single"
