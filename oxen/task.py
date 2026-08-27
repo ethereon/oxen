@@ -27,11 +27,12 @@ class TaskOutput:
         """
         raise NotImplementedError('Subclasses must implement the append method.')
 
-    def get_output(self) -> str:
+    @property
+    def text(self) -> str:
         """
-        Get the current output of the task.
+        The current output of the task.
         """
-        raise NotImplementedError('Subclasses must implement the get_output method.')
+        raise NotImplementedError('Subclasses must implement the text property.')
 
 
 class BufferedTaskOutput(TaskOutput):
@@ -47,7 +48,8 @@ class BufferedTaskOutput(TaskOutput):
         self._output.write(text)
         self.on_update.publish(text)
 
-    def get_output(self) -> str:
+    @property
+    def text(self) -> str:
         return self._output.getvalue()
 
 

@@ -39,7 +39,7 @@ class ShellProcessGroupTest(unittest.IsolatedAsyncioTestCase):
         await task.run()
 
         self.assertEqual(task.status, TaskStatus.COMPLETED)
-        self.assertEqual(task.output.get_output().count('True'), 2)
+        self.assertEqual(task.output.text.count('True'), 2)
 
     async def test_pty_rejects_custom_output_streams(self) -> None:
         task = Shell('true', pty=True, stdout=asyncio.subprocess.PIPE)
@@ -52,7 +52,7 @@ class ShellProcessGroupTest(unittest.IsolatedAsyncioTestCase):
 
         try:
             async with asyncio.timeout(2):
-                while expected_output not in task.output.get_output():
+                while expected_output not in task.output.text:
                     await asyncio.sleep(0.01)
 
             async with asyncio.timeout(2):

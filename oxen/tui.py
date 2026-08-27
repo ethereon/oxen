@@ -127,7 +127,7 @@ class TaskLog(Widget):
         self.reload()
 
     def reload(self) -> None:
-        output = '' if self.oxen_task is None else self.oxen_task.output.get_output()
+        output = '' if self.oxen_task is None else self.oxen_task.output.text
         rich = contains_terminal_controls(output)
         self._set_rich_mode(rich)
         self._log.clear()
@@ -152,7 +152,7 @@ class TaskLog(Widget):
 
         if self._terminal is None:
             self._terminal = TerminalBuffer()
-            self._terminal.feed(task.output.get_output())
+            self._terminal.feed(task.output.text)
             self._set_rich_mode(True)
         else:
             self._terminal.feed(output)
