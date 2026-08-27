@@ -3,8 +3,9 @@ import unittest
 from textual.containers import Container
 from textual.widgets import ContentSwitcher
 
+from oxen.core import Oxen
 from oxen.task import Task, TaskStatus
-from oxen.tui import Oxen, TaskHeader, TaskSplitView, TaskListItem, TaskLog, TaskPanel
+from oxen.tui import OxenTUI, TaskHeader, TaskSplitView, TaskListItem, TaskLog, TaskPanel
 
 
 class FakeTask(Task):
@@ -27,7 +28,8 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         enabled = FakeTask('enabled')
         disabled = FakeTask('disabled')
         disabled.auto_start = False
-        app = Oxen(enabled, disabled)
+        oxen = Oxen(enabled, disabled)
+        app = oxen.ui
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -37,7 +39,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             added_enabled = FakeTask('added-enabled')
             added_disabled = FakeTask('added-disabled')
             added_disabled.auto_start = False
-            app.add(added_enabled, added_disabled)
+            oxen.add(added_enabled, added_disabled)
             await pilot.pause()
 
             self.assertEqual(added_enabled.run_count, 1)
@@ -46,7 +48,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
     async def test_live_output_status_and_task_actions(self) -> None:
         first = FakeTask('first')
         second = FakeTask('second')
-        app = Oxen(first, second, auto_start=False)
+        app = Oxen(first, second, auto_start=False).ui
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -76,7 +78,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_task_output_interprets_terminal_control_sequences(self) -> None:
         task = FakeTask('terminal')
-        app = Oxen(task, auto_start=False)
+        app = Oxen(task, auto_start=False).ui
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -95,7 +97,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         first = FakeTask('first')
         second = FakeTask('second')
         first.output.append('obsolete\n\x1b[2J\x1b[Hcurrent')
-        app = Oxen(first, second, auto_start=False)
+        app = Oxen(first, second, auto_start=False).ui
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -109,7 +111,11 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_binding_can_be_replaced(self) -> None:
         task = FakeTask('task')
-        app = Oxen(task, auto_start=False, bindings={'restart': 'x'})
+        app = Oxen(
+            task,
+            auto_start=False,
+            ui=lambda oxen: OxenTUI(oxen, bindings={'restart': 'x'}),
+        ).ui
 
         async with app.run_test() as pilot:
             await pilot.press('r')
@@ -120,12 +126,29 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(task.run_count, 1)
 
+    async def test_next_view_action_requires_multiple_views(self) -> None:
+        single_view = Oxen(auto_start=False)
+        async with single_view.ui.run_test() as pilot:
+            await pilot.pause()
+            self.assertFalse(
+                any(binding.action == 'next_view' for _, binding, _, _ in single_view.ui.screen.active_bindings.values())
+            )
+
+        multiple_views = Oxen(auto_start=False)
+        task = FakeTask('task')
+        multiple_views.add_layout([task], name='Layout')
+        async with multiple_views.ui.run_test() as pilot:
+            await pilot.pause()
+            self.assertTrue(
+                any(binding.action == 'next_view' for _, binding, _, _ in multiple_views.ui.screen.active_bindings.values())
+            )
+
     async def test_add_layout_registers_tasks_and_builds_nested_splits(self) -> None:
         first = FakeTask('first')
         second = FakeTask('second')
         third = FakeTask('third')
-        app = Oxen(auto_start=False)
-        app.add_layout(
+        oxen = Oxen(auto_start=False)
+        oxen.add_layout(
             [
                 (first, second),
                 [(third,)],
@@ -134,6 +157,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             default=True,
             shortcut='m',
         )
+        app = oxen.ui
 
         self.assertEqual(app.tasks, [first, second, third])
         async with app.run_test() as pilot:
@@ -180,14 +204,14 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
     def test_add_layout_reuses_registered_tasks_and_validates_shape(self) -> None:
         task = FakeTask('task')
-        app = Oxen(task, auto_start=False)
-        app.add_layout([(task, task)], name='Repeated')
-        self.assertEqual(app.tasks, [task])
+        oxen = Oxen(task, auto_start=False)
+        oxen.add_layout([(task, task)], name='Repeated')
+        self.assertEqual(oxen.tasks, [task])
 
         with self.assertRaisesRegex(ValueError, 'must not be empty'):
-            app.add_layout([], name='Empty')
+            oxen.add_layout([], name='Empty')
         with self.assertRaisesRegex(TypeError, 'must be a Task, list, or tuple'):
-            app.add_layout([[object()]], name='Invalid')
+            oxen.add_layout([[object()]], name='Invalid')
 
 
 if __name__ == '__main__':

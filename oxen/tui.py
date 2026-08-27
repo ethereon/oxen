@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 
-from collections.abc import Callable, Coroutine, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, Self
+from typing import Any, Literal
 
 from rich.text import Text
 from textual import events
@@ -14,24 +13,17 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widget import Widget
 from textual.widgets import ContentSwitcher, Footer, Label, ListItem, ListView, Log
 
+from .core import Oxen, TaskOperationError, TaskOutputChange, TaskStatusChange
 from .publisher import SubscriptionStore
-from .store import TaskOutputChange, TaskStatusChange, TaskStore
 from .task import Task, TaskStatus
 from .terminal import TerminalBuffer
+from .ui import TaskLayout
 
 # The return value of the action handler is opaque from the perspective
-# of Oxen. However, if an awaitable is returned, Oxen will await it.
-type ActionHandler = Callable[[Oxen, Task | None], object]
+# of OxenTUI. However, if an awaitable is returned, OxenTUI will await it.
+type ActionHandler = Callable[[OxenTUI, Task | None], object]
 
-type ViewFactory = Callable[[Oxen], Widget]
-
-type TaskLayout = (
-    list[Task | TaskLayout]  # Vertically stacked
-    | tuple[Task | TaskLayout, ...]  # Horizontally stacked
-    # list[] is not covariant, so explicitly add list[Task] to
-    # allow things like `add_layout(app.tasks)``
-    | list[Task]
-)
+type ViewFactory = Callable[[OxenTUI], Widget]
 
 ACTION_DESCRIPTIONS: dict[str, str] = {
     'restart': 'Restart Task',
@@ -202,11 +194,11 @@ class TaskSplitView(Container):
     def __init__(
         self,
         layout: TaskLayout,
-        store: TaskStore,
+        oxen: Oxen,
         colors: Mapping[TaskStatus, str],
         **kwargs: Any,
     ) -> None:
-        self._store = store
+        self._oxen = oxen
         self._subscriptions = SubscriptionStore()
         super().__init__(
             *self._children(layout, colors),
@@ -236,8 +228,8 @@ class TaskSplitView(Container):
 
     def on_mount(self) -> None:
         self._subscriptions.add(
-            self._store.on_task_status_change.subscribe(self._update_task_status),
-            self._store.on_task_output_change.subscribe(self._append_task_output),
+            self._oxen.on_task_status_change.subscribe(self._update_task_status),
+            self._oxen.on_task_output_change.subscribe(self._append_task_output),
         )
 
     def on_unmount(self) -> None:
@@ -245,7 +237,7 @@ class TaskSplitView(Container):
 
     def on_show(self) -> None:
         # Focus selected task
-        if log := next((log for log in self.query(TaskLog) if log.oxen_task is self._store.selected_task), None):
+        if log := next((log for log in self.query(TaskLog) if log.oxen_task is self._oxen.selected_task), None):
             log.focus()
 
     def _update_task_status(self, change: TaskStatusChange) -> None:
@@ -255,7 +247,7 @@ class TaskSplitView(Container):
 
     def on_descendant_focus(self, event: events.DescendantFocus) -> None:
         if panel := event.widget.query_ancestor(TaskPanel):
-            self._store.select(panel.oxen_task)
+            self._oxen.select(panel.oxen_task)
 
     def _append_task_output(self, change: TaskOutputChange) -> None:
         for log in self.query(TaskLog):
@@ -270,14 +262,14 @@ class TaskBrowser(Horizontal):
 
     def __init__(
         self,
-        store: TaskStore,
+        oxen: Oxen,
         colors: Mapping[TaskStatus, str],
         **kwargs: Any,
     ) -> None:
-        self._store = store
+        self._oxen = oxen
         self._subscriptions = SubscriptionStore()
-        task_list = TaskList(store.tasks, colors, id='task-list')
-        self._header = TaskHeader(store.selected_task, colors)
+        task_list = TaskList(oxen.tasks, colors, id='task-list')
+        self._header = TaskHeader(oxen.selected_task, colors)
         self._log = TaskLog(id='selected-task-output')
         output = Vertical(
             self._header,
@@ -292,12 +284,12 @@ class TaskBrowser(Horizontal):
 
     def on_mount(self) -> None:
         self._subscriptions.add(
-            self._store.on_task_added.subscribe(self._add_task),
-            self._store.on_selected_task_change.subscribe(self._select),
-            self._store.on_task_status_change.subscribe(self._update_task_status),
-            self._store.on_task_output_change.subscribe(self._append_task_output),
+            self._oxen.on_task_added.subscribe(self._add_task),
+            self._oxen.on_selected_task_change.subscribe(self._select),
+            self._oxen.on_task_status_change.subscribe(self._update_task_status),
+            self._oxen.on_task_output_change.subscribe(self._append_task_output),
         )
-        self._select(self._store.selected_task)
+        self._select(self._oxen.selected_task)
 
     def on_unmount(self) -> None:
         self._subscriptions.clear()
@@ -307,7 +299,7 @@ class TaskBrowser(Horizontal):
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if isinstance(event.item, TaskListItem):
-            self._store.select(event.item.oxen_task)
+            self._oxen.select(event.item.oxen_task)
 
     def _add_task(self, task: Task) -> None:
         self.query_one(TaskList).add_task(task)
@@ -315,7 +307,7 @@ class TaskBrowser(Horizontal):
     def _update_task_status(self, change: TaskStatusChange) -> None:
         if item := self.query_one(TaskList).item_for(change.task):
             item.update_status()
-        if self._store.selected_task is change.task:
+        if self._oxen.selected_task is change.task:
             self._header.update_task(change.task)
 
     def _append_task_output(self, change: TaskOutputChange) -> None:
@@ -335,38 +327,35 @@ class ViewSpec:
     widget: Widget | None = None
 
 
-class Oxen(App[None]):
+class OxenTUI(App[None]):
     """
-    Task runner with a text-based user interface.
+    Interactive text-based UI for Oxen tasks.
     """
 
     CSS_PATH = 'tui.tcss'
 
     def __init__(
         self,
-        *tasks: Task,
+        oxen: Oxen,
         bindings: Mapping[str, str | None] | None = None,
         status_colors: Mapping[TaskStatus, str] | None = None,
-        auto_start: bool = True,
         stop_tasks_on_exit: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self.store = TaskStore()
-        self.auto_start = auto_start
+        self.oxen = oxen
         self.stop_tasks_on_exit = stop_tasks_on_exit
         self.status_colors = {**DEFAULT_STATUS_COLORS, **(status_colors or {})}
-        self._operations: set[asyncio.Task[Any]] = set()
+        self._subscriptions = SubscriptionStore()
         self._actions: dict[str, ActionHandler] = {}
         self._views: dict[str, ViewSpec] = {}
         self._view_order: list[str] = []
         self._default_view = 'default'
         self._mounted = False
 
-        self.add(*tasks)
         self.add_view(
             'default',
-            lambda app: TaskBrowser(app.store, app.status_colors),
+            lambda app: TaskBrowser(app.oxen, app.status_colors),
         )
 
         configured_bindings = {**DEFAULT_BINDINGS, **(bindings or {})}
@@ -388,27 +377,11 @@ class Oxen(App[None]):
 
     @property
     def tasks(self) -> list[Task]:
-        return self.store.tasks
+        return self.oxen.tasks
 
     @property
     def selected_task(self) -> Task | None:
-        """
-        The task currently selected in the shared store.
-        """
-        return self.store.selected_task
-
-    def add(self, *tasks: Task) -> None:
-        """
-        Register tasks with Oxen.
-        """
-        for task in tasks:
-            self.store.add(task)
-            if self._mounted and self.auto_start and task.auto_start and task.status is TaskStatus.PENDING:
-                self._schedule(task.run(), f'run {task.name}')
-
-    def __iadd__(self, task: Task) -> Self:
-        self.add(task)
-        return self
+        return self.oxen.selected_task
 
     def add_action(
         self,
@@ -466,102 +439,49 @@ class Oxen(App[None]):
         default: bool = False,
         shortcut: str | None = None,
     ) -> None:
-        """
-        Register a recursively nested split view and all tasks it contains.
-
-        Lists stack their children vertically and tuples stack their children
-        horizontally. Lists and tuples can be nested in any combination.
-
-        New tasks provided as part of the layout are automatically added.
-        """
-        normalized, tasks = self._normalize_layout(layout)
         self.add_view(
             name,
-            lambda app: TaskSplitView(normalized, app.store, app.status_colors),
+            lambda app: TaskSplitView(layout, app.oxen, app.status_colors),
             shortcut=shortcut,
         )
         if default:
             self._default_view = name
 
-        registered = {id(task) for task in self.tasks}
-        self.add(*(task for task in tasks if id(task) not in registered))
-
-    @staticmethod
-    def _normalize_layout(layout: TaskLayout) -> tuple[TaskLayout, list[Task]]:
-        tasks: list[Task] = []
-        seen_tasks: set[int] = set()
-        active_containers: set[int] = set()
-
-        def normalize(value: object, path: str) -> Task | TaskLayout:
-            if isinstance(value, Task):
-                if id(value) not in seen_tasks:
-                    seen_tasks.add(id(value))
-                    tasks.append(value)
-                return value
-            if not isinstance(value, (list, tuple)):
-                raise TypeError(f'{path} must be a Task, list, or tuple')
-            if not value:
-                raise ValueError(f'{path} must not be empty')
-            if id(value) in active_containers:
-                raise ValueError(f'{path} contains a recursive container')
-
-            active_containers.add(id(value))
-            try:
-                children = (normalize(item, f'{path}[{index}]') for index, item in enumerate(value))
-                return list(children) if isinstance(value, list) else tuple(children)
-            finally:
-                active_containers.remove(id(value))
-
-        normalized = normalize(layout, 'layout')
-        if isinstance(normalized, Task):
-            raise TypeError('layout must be a list or tuple')
-        return normalized, tasks
-
     def on_mount(self) -> None:
         self._mounted = True
-        if self.auto_start:
-            for task in self.tasks:
-                if task.auto_start and task.status is TaskStatus.PENDING:
-                    self._schedule(task.run(), f'run {task.name}')
+        self._subscriptions.add(self.oxen.on_task_operation_error.subscribe(self._notify_operation_error))
+        self.oxen.start()
 
     def on_unmount(self) -> None:
         self._mounted = False
+        self._subscriptions.clear()
 
-    def _schedule(self, coroutine: Coroutine, description: str) -> None:
-        operation = asyncio.create_task(coroutine, name=f'oxen: {description}')
-        self._operations.add(operation)
-
-        def completed(done: asyncio.Task[Any]) -> None:
-            self._operations.discard(done)
-            if done.cancelled():
-                return
-            if error := done.exception():
-                self.notify(f'{description}: {error}', title='Task operation failed', severity='error')
-
-        operation.add_done_callback(completed)
+    def _notify_operation_error(self, failure: TaskOperationError) -> None:
+        self.notify(
+            f'{failure.operation} {failure.task.name}: {failure.error}',
+            title='Task operation failed',
+            severity='error',
+        )
 
     async def action_quit(self) -> None:
         if self.stop_tasks_on_exit:
-            await asyncio.gather(
-                *(task.stop() for task in self.tasks if task.status is TaskStatus.RUNNING),
-                return_exceptions=True,
-            )
+            await self.oxen.shutdown()
         self.exit()
 
     def action_restart(self) -> None:
         if task := self._require_selected_task():
-            self._schedule(task.restart(), f'restart {task.name}')
+            self.oxen.restart_task(task)
 
     def action_stop(self) -> None:
         if task := self._require_selected_task():
-            self._schedule(task.stop(), f'stop {task.name}')
+            self.oxen.stop_task(task)
 
     def action_run(self) -> None:
         if task := self._require_selected_task():
             if task.status is TaskStatus.RUNNING:
                 self.notify(f'{task.name} is already running', severity='warning')
             else:
-                self._schedule(task.run(), f'run {task.name}')
+                self.oxen.run_task(task)
 
     def action_next_view(self) -> None:
         switcher = self.query_one('#views', ContentSwitcher)
@@ -571,6 +491,11 @@ class Oxen(App[None]):
         )
         index = (self._view_order.index(current_name) + 1) % len(self._view_order)
         self.action_show_view(self._view_order[index])
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == 'next_view' and len(self._views) <= 1:
+            return False
+        return super().check_action(action, parameters)
 
     def action_show_view(self, name: str) -> None:
         try:
