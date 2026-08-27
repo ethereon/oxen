@@ -202,6 +202,30 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(switcher.current, app._views['Main'].widget_id)
             self.assertTrue(second_panel.has_focus_within)
 
+    async def test_layout_selects_first_task_when_current_selection_is_absent(self) -> None:
+        selected = FakeTask('selected')
+        first_visible = FakeTask('first visible')
+        second_visible = FakeTask('second visible')
+        oxen = Oxen(selected, auto_start=False)
+        oxen.add_layout([first_visible, second_visible], name='Subset')
+        app = oxen.ui
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            self.assertIs(app.selected_task, selected)
+
+            app.action_show_view('Subset')
+            await pilot.pause()
+
+            layout = app.query_one(TaskSplitView)
+            first_panel = next(
+                panel
+                for panel in layout.query(TaskPanel)
+                if panel.oxen_task is first_visible
+            )
+            self.assertIs(app.selected_task, first_visible)
+            self.assertTrue(first_panel.has_focus_within)
+
     def test_add_layout_reuses_registered_tasks_and_validates_shape(self) -> None:
         task = FakeTask('task')
         oxen = Oxen(task, auto_start=False)

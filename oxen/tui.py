@@ -236,9 +236,16 @@ class TaskSplitView(Container):
         self._subscriptions.clear()
 
     def on_show(self) -> None:
-        # Focus selected task
-        if log := next((log for log in self.query(TaskLog) if log.oxen_task is self._oxen.selected_task), None):
-            log.focus()
+        # Focus the currently selected task.
+        # It's possible that the currently selected task is not present
+        # in this view. If that's the case, select and focus the first visible view.
+        logs = list(self.query(TaskLog))
+        log = next(
+            (log for log in logs if log.oxen_task is self._oxen.selected_task),
+            logs[0],
+        )
+        self._oxen.select(log.oxen_task)
+        log.focus()
 
     def _update_task_status(self, change: TaskStatusChange) -> None:
         for panel in self.query(TaskPanel):
