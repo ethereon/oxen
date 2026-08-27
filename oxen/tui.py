@@ -11,12 +11,12 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widget import Widget
-from textual.widgets import ContentSwitcher, Footer, Label, ListItem, ListView, Log
+from textual.widgets import ContentSwitcher, Footer, Label, ListItem, ListView, Log, RichLog
 
 from .core import Oxen, TaskOperationError, TaskOutputChange, TaskStatusChange
 from .publisher import SubscriptionStore
 from .task import Task, TaskStatus
-from .terminal import TerminalBuffer
+from .terminal import TerminalBuffer, contains_terminal_controls
 from .ui import TaskLayout
 
 # The return value of the action handler is opaque from the perspective
@@ -92,7 +92,7 @@ class TaskList(ListView):
         self.append(TaskListItem(task, self._colors))
 
 
-class TaskLog(Log):
+class TaskLog(Widget):
     """
     A live task output widget.
 
@@ -100,17 +100,25 @@ class TaskLog(Log):
     displayed task with `select`.
     """
 
+    can_focus = True
+
     def __init__(self, task: Task | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.oxen_task = task
         self.follows_selection = task is None
-        self._terminal = TerminalBuffer()
-        self._rendered_output = ''
+        self._terminal: TerminalBuffer | None = None
+        self._log: Log | RichLog = Log()
         self._sync_pending = False
+
+    def compose(self) -> ComposeResult:
+        yield self._log
 
     def on_mount(self) -> None:
         self._sync_pending = False
         self.reload()
+
+    def on_focus(self) -> None:
+        self._log.focus()
 
     def select(self, task: Task | None) -> None:
         if not self.follows_selection or task is self.oxen_task:
@@ -119,39 +127,67 @@ class TaskLog(Log):
         self.reload()
 
     def reload(self) -> None:
-        self.clear()
-        self._terminal.reset()
-        self._rendered_output = ''
-        if self.oxen_task is not None:
-            self._terminal.feed(self.oxen_task.output.get_output())
-            self._sync_output()
+        output = '' if self.oxen_task is None else self.oxen_task.output.get_output()
+        rich = contains_terminal_controls(output)
+        self._set_rich_mode(rich)
+        self._log.clear()
+
+        if rich:
+            assert isinstance(self._log, RichLog)
+            self._terminal = TerminalBuffer()
+            self._terminal.feed(output)
+            self._log.write(self._terminal.render_text())
+        else:
+            assert isinstance(self._log, Log)
+            self._terminal = None
+            self._log.write(output)
 
     def append_output(self, task: Task, output: str) -> None:
-        if task is self.oxen_task:
+        if task is not self.oxen_task:
+            return
+
+        if self._terminal is None and not contains_terminal_controls(output):
+            self._log.write(output)
+            return
+
+        if self._terminal is None:
+            self._terminal = TerminalBuffer()
+            self._terminal.feed(task.output.get_output())
+            self._set_rich_mode(True)
+        else:
             self._terminal.feed(output)
-            self._schedule_sync()
+        self._schedule_sync()
 
     def _schedule_sync(self) -> None:
         if self._sync_pending:
             return
 
         self._sync_pending = True
-        if not self.call_after_refresh(self._flush_output):
+        if not self._log.call_after_refresh(self._flush_output):
             self._sync_pending = False
             self._sync_output()
 
     def _flush_output(self) -> None:
         self._sync_pending = False
-        self._sync_output()
+        if isinstance(self._log, RichLog):
+            self._sync_output()
 
     def _sync_output(self) -> None:
-        rendered_output = self._terminal.render()
-        if rendered_output.startswith(self._rendered_output):
-            self.write(rendered_output[len(self._rendered_output) :])
-        else:
-            self.clear()
-            self.write(rendered_output)
-        self._rendered_output = rendered_output
+        assert isinstance(self._log, RichLog)
+        assert self._terminal is not None
+        self._log.clear()
+        self._log.write(self._terminal.render_text())
+
+    def _set_rich_mode(self, rich: bool) -> None:
+        if rich == isinstance(self._log, RichLog):
+            return
+        had_focus = self.has_focus_within
+        old_log = self._log
+        self._log = RichLog() if rich else Log()
+        old_log.remove()
+        self.mount(self._log)
+        if had_focus:
+            self._log.focus()
 
 
 class TaskHeader(Label):

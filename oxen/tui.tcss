@@ -53,6 +53,11 @@ TaskLog {
     padding: 0 1;
 }
 
+TaskLog > Log, TaskLog > RichLog {
+    width: 100%;
+    height: 100%;
+}
+
 TaskPanel {
     width: 1fr;
     height: 1fr;

@@ -1,9 +1,16 @@
 from __future__ import annotations
+import re
+from itertools import groupby
 from typing import Literal
+
+from rich.ansi import AnsiDecoder
+from rich.style import Style
+from rich.text import Text
 
 
 type Cursor = tuple[int, int]
-type TerminalLine = list[str]
+type TerminalCell = tuple[str, Style]
+type TerminalLine = list[TerminalCell]
 type ParserState = Literal[
     'ground',
     'escape',
@@ -13,12 +20,19 @@ type ParserState = Literal[
     'escape-character',
 ]
 
+_TERMINAL_CONTROL_PATTERN = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')
+
+
+def contains_terminal_controls(text: str) -> bool:
+    return _TERMINAL_CONTROL_PATTERN.search(text) is not None
+
 
 class TerminalBuffer:
     """
     Terminal output renderer.
     This class implements the output-side controls commonly emitted by CLIs while
-    deliberately ignoring input related controls and text styling.
+    deliberately ignoring input related controls.
+    Select Graphic Rendition (SGR) styling is supported.
     """
 
     def __init__(self) -> None:
@@ -31,6 +45,7 @@ class TerminalBuffer:
         self._saved_cursor: Cursor = (0, 0)
         self._state: ParserState = 'ground'
         self._sequence: str = ''
+        self._ansi_decoder = AnsiDecoder()
 
     def feed(self, text: str) -> None:
         for character in text:
@@ -52,14 +67,24 @@ class TerminalBuffer:
                 case _:  # A one-character escape sequence such as ESC ( B.
                     self._state = 'ground'
 
-    def render(self) -> str:
+    def render_text(self) -> Text:
         last_content_row = max(
-            (index for index, line in enumerate(self._lines) if any(cell != ' ' for cell in line)),
+            (index for index, line in enumerate(self._lines) if any(character != ' ' for character, _style in line)),
             default=0,
         )
         last_row = max(self._row, last_content_row)
         self._ensure_row(last_row)
-        return '\n'.join(''.join(line).rstrip() for line in self._lines[: last_row + 1])
+        rendered = Text()
+        for row, line in enumerate(self._lines[: last_row + 1]):
+            last_column = next(
+                (column for column in range(len(line) - 1, -1, -1) if line[column][0] != ' '),
+                -1,
+            )
+            for style, cells in groupby(line[: last_column + 1], key=lambda cell: cell[1]):
+                rendered.append(''.join(character for character, _style in cells), style or None)
+            if row < last_row:
+                rendered.append('\n')
+        return rendered
 
     def _ground(self, character: str) -> None:
         match character:
@@ -169,11 +194,11 @@ class TerminalBuffer:
                 del line[self._column : self._column + parameter()]
             case '@':
                 line = self._line()
-                line[self._column : self._column] = [' '] * parameter()
+                line[self._column : self._column] = [self._blank()] * parameter()
             case 'X':
                 line = self._line()
                 self._pad(line, self._column + parameter())
-                line[self._column : self._column + parameter()] = [' '] * parameter()
+                line[self._column : self._column + parameter()] = [self._blank()] * parameter()
             case 'L':
                 self._lines[self._row : self._row] = [[] for _ in range(parameter())]
             case 'M':
@@ -184,6 +209,10 @@ class TerminalBuffer:
                 self._lines.extend([] for _ in range(count))
             case 'T':
                 self._lines[:0] = [[] for _ in range(parameter())]
+            case 'm':
+                # Rich's ANSI decoder handles standard, bright, 256-color, and
+                # true-color SGR parameters, as well as text attributes.
+                self._ansi_decoder.decode_line(f'\x1b[{sequence}m')
             case 's':
                 self._saved_cursor = (self._row, self._column)
             case 'u':
@@ -194,10 +223,11 @@ class TerminalBuffer:
     def _write(self, character: str) -> None:
         line = self._line()
         self._pad(line, self._column)
+        cell = (character, self._ansi_decoder.style)
         if self._column == len(line):
-            line.append(character)
+            line.append(cell)
         else:
-            line[self._column] = character
+            line[self._column] = cell
         self._column += 1
 
     def _erase_display(self, mode: int) -> None:
@@ -219,7 +249,7 @@ class TerminalBuffer:
                 del line[self._column :]
             case 1:
                 self._pad(line, self._column + 1)
-                line[: self._column + 1] = [' '] * (self._column + 1)
+                line[: self._column + 1] = [self._blank()] * (self._column + 1)
             case 2:
                 line.clear()
 
@@ -231,7 +261,9 @@ class TerminalBuffer:
         if row >= len(self._lines):
             self._lines.extend([] for _ in range(row + 1 - len(self._lines)))
 
-    @staticmethod
-    def _pad(line: TerminalLine, length: int) -> None:
+    def _pad(self, line: TerminalLine, length: int) -> None:
         if len(line) < length:
-            line.extend(' ' for _ in range(length - len(line)))
+            line.extend(self._blank() for _ in range(length - len(line)))
+
+    def _blank(self) -> TerminalCell:
+        return (' ', self._ansi_decoder.style)

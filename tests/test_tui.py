@@ -1,11 +1,16 @@
 import unittest
 
 from textual.containers import Container
-from textual.widgets import ContentSwitcher
+from textual.widgets import ContentSwitcher, Log, RichLog
 
 from oxen.core import Oxen
 from oxen.task import Task, TaskStatus
 from oxen.tui import OxenTUI, TaskHeader, TaskSplitView, TaskListItem, TaskLog, TaskPanel
+
+
+def task_log_lines(task_log: TaskLog) -> list[str]:
+    log = task_log._log
+    return [line.text for line in log.lines] if isinstance(log, RichLog) else log._lines
 
 
 class FakeTask(Task):
@@ -61,7 +66,10 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
             selected_log = app.query_one('#selected-task-output', TaskLog)
             selected_header = app.query_one('#output-pane TaskHeader', TaskHeader)
-            self.assertIn('hello', '\n'.join(str(line) for line in selected_log.lines))
+            self.assertIn('hello', '\n'.join(task_log_lines(selected_log)))
+            self.assertIsInstance(selected_log._log, Log)
+            self.assertIsNone(selected_log._terminal)
+            self.assertEqual(len(selected_log.children), 1)
             self.assertEqual(selected_header.content.plain, '● first')
             first_item = app.query_one(TaskListItem)
             self.assertEqual(first_item.oxen_task.status, TaskStatus.FAILED)
@@ -91,7 +99,16 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
 
             log = app.query_one('#selected-task-output', TaskLog)
-            self.assertEqual([str(line) for line in log.lines], ['progress: 25%', ''])
+            self.assertEqual(task_log_lines(log), ['progress: 25%', ''])
+
+            output.append('\x1b[31mred\x1b[0m')
+            await pilot.pause()
+            rich_log = log._log
+            assert isinstance(rich_log, RichLog)
+            red_segment = next(segment for segment in rich_log.lines[-1] if segment.text == 'red')
+            self.assertEqual(red_segment.style.color.number, 1)
+            self.assertIsNotNone(log._terminal)
+            self.assertEqual(len(log.children), 1)
 
     async def test_task_log_replays_controls_when_switching_tasks(self) -> None:
         first = FakeTask('first')
@@ -102,12 +119,12 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         async with app.run_test() as pilot:
             await pilot.pause()
             log = app.query_one('#selected-task-output', TaskLog)
-            self.assertEqual([str(line) for line in log.lines], ['current'])
+            self.assertEqual(task_log_lines(log), ['current'])
 
             await pilot.press('down')
             await pilot.press('up')
             await pilot.pause()
-            self.assertEqual([str(line) for line in log.lines], ['current'])
+            self.assertEqual(task_log_lines(log), ['current'])
 
     async def test_default_binding_can_be_replaced(self) -> None:
         task = FakeTask('task')
@@ -188,7 +205,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             second_header = second_panel.query_one(TaskHeader)
             self.assertEqual(first_header.content.plain, '● first')
             self.assertEqual(second_header.content.plain, '● second')
-            self.assertIn('layout output', '\n'.join(str(line) for line in first_panel.query_one(TaskLog).lines))
+            self.assertIn('layout output', '\n'.join(task_log_lines(first_panel.query_one(TaskLog))))
 
             self.assertTrue(await pilot.click(second_panel.query_one(TaskLog)))
             await pilot.pause()
