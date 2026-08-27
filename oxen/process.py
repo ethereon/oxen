@@ -13,14 +13,28 @@ from .task import Task, TaskStatus
 
 class Process(Task):
     """
-    A task that runs a subprocess.
+    A task that runs a subprocess and publishes its output and status.
 
-    Positional arguments form the subprocess argument vector.
-    Keyword arguments are passed to `asyncio.create_subprocess_exec` (or
-    `asyncio.create_subprocess_shell` when ``shell=True``).
+    Args:
+        *args: The subprocess argument vector.
 
-    Unless explicitly supplied, stdout and stderr are captured and published
-    through `Task.on_new_output`.
+        name: An optional name displayed in the UI.
+            By default, a name is derived from the process arguments.
+
+        shell: Whether to treat the invocation as a shell command.
+            Defaults to False.
+
+        encoding: The encoding used to decode process output.
+            Defaults to 'utf-8'.
+
+        decoding_errors: The error-handling scheme used when decoding process output.
+            For options, see: https://docs.python.org/3/library/codecs.html
+            Defaults to 'replace'.
+
+        **spawn_kwargs: Additional keyword arguments forwarded to the selected
+            asyncio subprocess function, based on `shell`:
+                asyncio.create_subprocess_shell      (if shell)
+                asyncio.create_subprocess_exec       (otherwise)
     """
 
     _READ_SIZE = 64 * 1024
@@ -28,20 +42,25 @@ class Process(Task):
     def __init__(
         self,
         *args: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-        **kwargs: Any,
+        name: str | None = None,
+        shell: bool = False,
+        encoding: str = 'utf-8',
+        decoding_errors: str = 'replace',
+        **spawn_kwargs: Any,
     ) -> None:
         if not args:
             raise ValueError('Process requires at least one process argument.')
 
-        process_kwargs = dict(kwargs)
-        super().__init__(
-            name=process_kwargs.pop('name', None) or self._shell_command(args),
-        )
+        super().__init__(name=name or self._shell_command(args))
 
         self.args = args
-        self.kwargs = process_kwargs
+        self.shell = shell
+        self.encoding = encoding
+        self.decoding_errors = decoding_errors
+        self.spawn_kwargs: dict[str, Any] = spawn_kwargs
         self.process: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
+
         self._runner: asyncio.Task[None] | None = None
         self._run_complete = asyncio.Event()
         self._run_complete.set()
@@ -54,15 +73,7 @@ class Process(Task):
         if self.status is TaskStatus.RUNNING:
             raise RuntimeError('Process is already running.')
 
-        spawn_kwargs = self.kwargs.copy()
-        shell = bool(spawn_kwargs.pop('shell', False))
-        encoding = spawn_kwargs.pop('encoding', None) or 'utf-8'
-        errors = spawn_kwargs.pop('errors', None) or 'replace'
-        text = spawn_kwargs.pop('text', None)
-        universal_newlines = spawn_kwargs.pop('universal_newlines', None)
-
-        if text is not None and universal_newlines is not None and text != universal_newlines:
-            raise ValueError('text and universal_newlines have different values')
+        spawn_kwargs = self.spawn_kwargs.copy()
 
         spawn_kwargs.setdefault('stdout', asyncio.subprocess.PIPE)
         spawn_kwargs.setdefault('stderr', asyncio.subprocess.PIPE)
@@ -83,7 +94,7 @@ class Process(Task):
         self.status = TaskStatus.RUNNING
 
         try:
-            if shell:
+            if self.shell:
                 command = self._shell_command(self.args)
                 process = await asyncio.create_subprocess_shell(command, **spawn_kwargs)
             else:
@@ -94,9 +105,9 @@ class Process(Task):
 
             async with asyncio.TaskGroup() as readers:
                 if process.stdout is not None:
-                    readers.create_task(self._publish_stream(process.stdout, encoding, errors))
+                    readers.create_task(self._publish_stream(process.stdout, self.encoding, self.decoding_errors))
                 if process.stderr is not None and process.stderr is not process.stdout:
-                    readers.create_task(self._publish_stream(process.stderr, encoding, errors))
+                    readers.create_task(self._publish_stream(process.stderr, self.encoding, self.decoding_errors))
                 await process.wait()
 
             self.returncode = process.returncode
@@ -144,9 +155,9 @@ class Process(Task):
         self,
         stream: asyncio.StreamReader,
         encoding: str,
-        errors: str,
+        decoding_errors: str,
     ) -> None:
-        decoder = codecs.getincrementaldecoder(encoding)(errors=errors)
+        decoder = codecs.getincrementaldecoder(encoding)(errors=decoding_errors)
 
         while chunk := await stream.read(self._READ_SIZE):
             if output := decoder.decode(chunk):
