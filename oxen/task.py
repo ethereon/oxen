@@ -27,6 +27,12 @@ class TaskOutput:
         """
         raise NotImplementedError('Subclasses must implement the append method.')
 
+    def clear(self) -> None:
+        """
+        Clear the output and notify subscribers.
+        """
+        raise NotImplementedError('Subclasses must implement the clear method.')
+
     @property
     def text(self) -> str:
         """
@@ -47,6 +53,11 @@ class BufferedTaskOutput(TaskOutput):
     def append(self, text: str) -> None:
         self._output.write(text)
         self.on_update.publish(text)
+
+    def clear(self) -> None:
+        self._output.seek(0)
+        self._output.truncate()
+        self.on_update.publish('\x1bc')
 
     @property
     def text(self) -> str:

@@ -42,6 +42,9 @@ class Process(Task):
         terminate_timeout: Seconds to wait after terminating a process before killing it.
             Defaults to 3 seconds.
 
+        clear_output_on_restart: Whether to clear existing output before restarting.
+            Defaults to True.
+
         **spawn_kwargs: Additional keyword arguments forwarded to the selected
             asyncio subprocess function, based on `shell`:
                 asyncio.create_subprocess_shell      (if shell)
@@ -60,6 +63,7 @@ class Process(Task):
         encoding: str = 'utf-8',
         decoding_errors: str = 'replace',
         terminate_timeout: float = 3.0,
+        clear_output_on_restart: bool = True,
         **spawn_kwargs: Any,
     ) -> None:
         if not args:
@@ -73,6 +77,7 @@ class Process(Task):
         self.encoding = encoding
         self.decoding_errors = decoding_errors
         self.terminate_timeout = terminate_timeout
+        self.clear_output_on_restart = clear_output_on_restart
         self.spawn_kwargs: dict[str, Any] = spawn_kwargs
         self.process: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
@@ -180,9 +185,18 @@ class Process(Task):
         finally:
             if pty_main_fd is not None:
                 os.close(pty_main_fd)
+            if self.returncode is not None:
+                prefix = '' if not self.output.text or self.output.text.endswith('\n') else '\n'
+                self.output.append(f'\n{prefix}━━━━━━━━━━━━ Exit Code {self.returncode} ━━━━━━━━━━━━\n')
             self._runner = None
             self._process_group_id = None
             self._run_complete.set()
+
+    async def restart(self) -> None:
+        await self.stop()
+        if self.clear_output_on_restart:
+            self.output.clear()
+        await self.run()
 
     async def stop(self) -> None:
         """
