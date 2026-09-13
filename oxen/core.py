@@ -127,7 +127,7 @@ class Oxen:
         self,
         layout: TaskLayout,
         *,
-        name: str,
+        name: str | None = None,
         default: bool = False,
         shortcut: str | None = None,
     ) -> None:
@@ -149,6 +149,18 @@ class Oxen:
                 (task_a, task_b),
                 task_c
             ]
+
+        Args:
+            layout: Tasks and nested list or tuple containers defining the
+                split view. Tasks in the layout are registered automatically.
+
+            name: Name used to identify the layout.
+                If omitted, one is auto-generated.
+
+            default: Whether to show this layout when the UI starts.
+                Defaults to False.
+
+            shortcut: Optional key binding used to show this layout.
         """
         normalized, tasks = normalize_task_layout(layout)
         registered = {id(task) for task in self.tasks}

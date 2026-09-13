@@ -15,7 +15,7 @@ class UserInterface(Protocol):
         self,
         layout: TaskLayout,
         *,
-        name: str,
+        name: str | None = None,
         default: bool = False,
         shortcut: str | None = None,
     ) -> None: ...

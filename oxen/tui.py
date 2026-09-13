@@ -478,17 +478,18 @@ class OxenTUI(App[None]):
         self,
         layout: TaskLayout,
         *,
-        name: str,
+        name: str | None = None,
         default: bool = False,
         shortcut: str | None = None,
     ) -> None:
+        layout_name = name if name is not None else f'Dasboard {len(self._views)}'
         self.add_view(
-            name,
+            layout_name,
             lambda app: TaskSplitView(layout, app.oxen, app.status_colors),
             shortcut=shortcut,
         )
         if default:
-            self._default_view = name
+            self._default_view = layout_name
 
     def on_mount(self) -> None:
         self._mounted = True
