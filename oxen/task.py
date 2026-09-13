@@ -69,10 +69,15 @@ class Task:
     Abstract base class for tasks.
     """
 
-    def __init__(self, name: str):
+    def __init__(
+        self,
+        name: str,
+        *,
+        auto_start: bool = True,
+    ):
         self.name = name
         self.output = self._create_output()
-        self.auto_start = True
+        self.auto_start = auto_start
         self._status = TaskStatus.PENDING
 
         # Published when the task's status changes.

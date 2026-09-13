@@ -45,6 +45,9 @@ class Process(Task):
         clear_output_on_restart: Whether to clear existing output before restarting.
             Defaults to True.
 
+        auto_start: Whether to automatically start the process when the UI is run.
+            Defaults to True.
+
         **spawn_kwargs: Additional keyword arguments forwarded to the selected
             asyncio subprocess function, based on `shell`:
                 asyncio.create_subprocess_shell      (if shell)
@@ -64,12 +67,16 @@ class Process(Task):
         decoding_errors: str = 'replace',
         terminate_timeout: float = 3.0,
         clear_output_on_restart: bool = True,
+        auto_start: bool = True,
         **spawn_kwargs: Any,
     ) -> None:
         if not args:
             raise ValueError('Process requires at least one process argument.')
 
-        super().__init__(name=name or self._shell_command(args))
+        super().__init__(
+            name=name or self._shell_command(args),
+            auto_start=auto_start,
+        )
 
         self.args = args
         self.shell = shell
