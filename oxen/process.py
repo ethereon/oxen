@@ -102,6 +102,9 @@ class Process(Task):
         if self.status is TaskStatus.RUNNING:
             raise RuntimeError('Process is already running.')
 
+        if self.clear_output_on_restart and self.status is not TaskStatus.PENDING:
+            self.output.clear()
+
         spawn_kwargs = self.spawn_kwargs.copy()
 
         # A pseudoterminal (PTY) encourages interactive flushing.
@@ -198,12 +201,6 @@ class Process(Task):
             self._runner = None
             self._process_group_id = None
             self._run_complete.set()
-
-    async def restart(self) -> None:
-        await self.stop()
-        if self.clear_output_on_restart:
-            self.output.clear()
-        await self.run()
 
     async def stop(self) -> None:
         """
