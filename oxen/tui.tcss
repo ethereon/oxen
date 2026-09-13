@@ -2,6 +2,10 @@ Screen {
     layout: vertical;
 }
 
+Screen > .screen--selection {
+    color: $text;
+}
+
 #views {
     height: 1fr;
 }
