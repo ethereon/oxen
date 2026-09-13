@@ -42,9 +42,9 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
 }
 
 DEFAULT_STATUS_COLORS: dict[TaskStatus, str] = {
-    TaskStatus.PENDING: '#FFFFFF',
+    TaskStatus.PENDING: '#666666',
     TaskStatus.RUNNING: '#35C759',
-    TaskStatus.COMPLETED: '#70B0EB',
+    TaskStatus.COMPLETED: '#af8dc3',
     TaskStatus.FAILED: '#FF5C60',
     TaskStatus.STOPPED: '#FAC800',
 }
