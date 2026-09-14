@@ -4,8 +4,7 @@ import shlex
 import sys
 import unittest
 
-from oxen import Shell
-from oxen.task import TaskStatus
+from oxen import Shell, TaskStatus
 
 
 @unittest.skipUnless(os.name == 'posix', 'process groups are POSIX-specific')
