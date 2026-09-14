@@ -74,9 +74,10 @@ class Task:
         name: str,
         *,
         auto_start: bool = True,
+        output: TaskOutput | None = None,
     ):
         self.name = name
-        self.output = self._create_output()
+        self.output = output if output is not None else BufferedTaskOutput()
         self.auto_start = auto_start
         self._status = TaskStatus.PENDING
 
@@ -102,6 +103,3 @@ class Task:
         if new_status != self._status:
             self._status = new_status
             self.on_status_change.publish(new_status)
-
-    def _create_output(self) -> TaskOutput:
-        return BufferedTaskOutput()
