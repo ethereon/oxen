@@ -12,6 +12,9 @@ license = "BSD-3-Clause"
 authors = [{ name = "Saumitro Dasgupta", email = "sd@cs.stanford.edu" }]
 dependencies = ["textual>=1.0,<9"]
 
+[project.urls]
+Homepage = "https://github.com/ethereon/oxen"
+
 [project.optional-dependencies]
 watch = ["watchdog>=4"]
 
