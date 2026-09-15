@@ -198,12 +198,19 @@ class TaskHeader(Label):
     ) -> None:
         self._colors = colors
         super().__init__(
-            _status_text(task, colors) if task is not None else '',
+            self._text(task, colors) if task is not None else '',
             classes='task-header',
         )
 
     def update_task(self, task: Task | None) -> None:
-        self.update(_status_text(task, self._colors) if task is not None else '')
+        self.update(self._text(task, self._colors) if task is not None else '')
+
+    @staticmethod
+    def _text(task: Task, colors: Mapping[TaskStatus, str]) -> Text:
+        text = _status_text(task, colors)
+        if task.run_count > 1:
+            text.append(f' ({task.run_count})', style='dim')
+        return text
 
 
 class TaskPanel(Vertical):

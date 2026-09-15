@@ -19,11 +19,9 @@ else:
 class FakeTask(Task):
     def __init__(self) -> None:
         super().__init__('target')
-        self.run_count = 0
         self.stop_count = 0
 
     async def _execute(self) -> TaskStatus:
-        self.run_count += 1
         return TaskStatus.COMPLETED
 
     async def _interrupt(self) -> None:
@@ -32,7 +30,7 @@ class FakeTask(Task):
 
 class ClearingTask(FakeTask):
     async def _execute(self) -> TaskStatus:
-        if self.run_count:
+        if self.run_count > 1:
             self.output.clear()
         return await super()._execute()
 

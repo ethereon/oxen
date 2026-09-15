@@ -89,16 +89,14 @@ class Process(Task):
         self.process: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
 
-        self._has_run = False
         self._process_group_id: int | None = None
 
     async def _execute(self) -> TaskStatus:
         """
         Start the process and wait for it to exit.
         """
-        if self.clear_output_on_restart and self._has_run:
+        if self.clear_output_on_restart and self.run_count > 1:
             self.output.clear()
-        self._has_run = True
 
         spawn_kwargs = self.spawn_kwargs.copy()
 

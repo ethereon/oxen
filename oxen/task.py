@@ -83,6 +83,7 @@ class Task:
         self.name = name
         self.output = output if output is not None else BufferedTaskOutput()
         self.auto_start = auto_start
+        self.run_count = 0
 
         # Published when the task's status changes.
         self.on_status_change = Publisher[TaskStatus]()
@@ -111,6 +112,7 @@ class Task:
             if self.status is TaskStatus.RUNNING:
                 raise RuntimeError(f'{self.name} is already running.')
 
+            self.run_count += 1
             self._stop_requested = False
             self._runner = asyncio.current_task()
             self._run_complete.clear()

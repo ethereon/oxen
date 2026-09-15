@@ -14,11 +14,9 @@ class FakeTask(Task):
     ) -> None:
         super().__init__(name, output=output)
         self.result = result
-        self.run_count = 0
         self.stop_count = 0
 
     async def _execute(self) -> TaskStatus:
-        self.run_count += 1
         return self.result
 
     async def _interrupt(self) -> None:
@@ -36,7 +34,6 @@ class BlockingTask(FakeTask):
         self.release = asyncio.Event()
 
     async def _execute(self) -> TaskStatus:
-        self.run_count += 1
         await self.release.wait()
         return self.result
 
@@ -152,7 +149,11 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
     async def test_task_owns_status_transitions(self) -> None:
         task = FakeTask('task')
         statuses: list[TaskStatus] = []
+        run_counts: list[int] = []
         task.on_status_change.subscribe(statuses.append)
+        task.on_status_change.subscribe(lambda status: run_counts.append(task.run_count))
+
+        self.assertEqual(task.run_count, 0)
 
         with self.assertRaises(AttributeError):
             task.status = TaskStatus.RUNNING  # type: ignore[misc]
@@ -160,7 +161,9 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         await task.run()
 
         self.assertEqual(statuses, [TaskStatus.RUNNING, TaskStatus.COMPLETED])
+        self.assertEqual(run_counts, [1, 1])
         self.assertEqual(task.status, TaskStatus.COMPLETED)
+        self.assertEqual(task.run_count, 1)
 
     async def test_task_maps_results_exceptions_and_invalid_results(self) -> None:
         failed = FakeTask('failed', result=TaskStatus.FAILED)
@@ -206,6 +209,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, 'already running'):
             await task.run()
+        self.assertEqual(task.run_count, 1)
 
         await task.stop()
         await runner

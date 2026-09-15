@@ -4,7 +4,24 @@ import shlex
 import sys
 import unittest
 
-from oxen import Shell, TaskStatus
+from oxen import Process, Shell, TaskStatus
+
+
+class ProcessOutputTest(unittest.IsolatedAsyncioTestCase):
+    async def test_output_clear_uses_run_count(self) -> None:
+        for clear_output in (True, False):
+            with self.subTest(clear_output=clear_output):
+                task = Process(sys.executable, '-c', 'print("run")', clear_output_on_restart=clear_output)
+                self.assertEqual(task.run_count, 0)
+
+                await task.run()
+                self.assertEqual(task.run_count, 1)
+                first_output = task.output.text
+                self.assertTrue(first_output.startswith('run\n'))
+
+                await task.run()
+                self.assertEqual(task.run_count, 2)
+                self.assertEqual(task.output.text, first_output if clear_output else first_output * 2)
 
 
 @unittest.skipUnless(os.name == 'posix', 'process groups are POSIX-specific')

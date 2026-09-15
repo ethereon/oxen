@@ -16,11 +16,9 @@ def task_log_lines(task_log: TaskLog) -> list[str]:
 class FakeTask(Task):
     def __init__(self, name: str) -> None:
         super().__init__(name)
-        self.run_count = 0
         self.stop_count = 0
 
     async def _execute(self) -> TaskStatus:
-        self.run_count += 1
         return TaskStatus.COMPLETED
 
     async def _interrupt(self) -> None:
@@ -82,6 +80,27 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertIs(app.selected_task, second)
             self.assertEqual(selected_header.content.plain, '● second')
+
+    async def test_task_header_shows_count_after_second_run(self) -> None:
+        task = FakeTask('repeated')
+        app = Oxen(task, auto_start=False).ui
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            header = app.query_one('#output-pane TaskHeader', TaskHeader)
+            self.assertEqual(header.content.plain, '● repeated')
+
+            await task.run()
+            await pilot.pause()
+            self.assertEqual(header.content.plain, '● repeated')
+
+            await task.run()
+            await pilot.pause()
+            self.assertEqual(header.content.plain, '● repeated (2)')
+
+            await task.run()
+            await pilot.pause()
+            self.assertEqual(header.content.plain, '● repeated (3)')
 
     async def test_task_output_interprets_terminal_control_sequences(self) -> None:
         task = FakeTask('terminal')
