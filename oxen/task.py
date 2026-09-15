@@ -83,21 +83,31 @@ class Task:
         self.name = name
         self.output = output if output is not None else BufferedTaskOutput()
         self.auto_start = auto_start
-        self._status = TaskStatus.PENDING
-        self._runner: asyncio.Task[None] | None = None
-        self._run_complete = asyncio.Event()
-        self._run_complete.set()
-        self._stop_requested = False
-        self._transition_lock = asyncio.Lock()
 
         # Published when the task's status changes.
         self.on_status_change = Publisher[TaskStatus]()
+
+        # Tracks the task status. Avoid mutating this directly.
+        # The status transitions are handled by this base class.
+        self._status = TaskStatus.PENDING
+
+        # Coordinates state updates made by concurrent `run` and `stop` calls.
+        self._lifecycle_lock = asyncio.Lock()
+
+        # Tracks the active run and signals when it finishes.
+        self._runner: asyncio.Task[None] | None = None
+        self._run_complete = asyncio.Event()
+        self._run_complete.set()
+
+        # Set when the `stop` method is invoked.
+        # Subclasses may safely read this flag.
+        self._stop_requested = False
 
     async def run(self) -> None:
         """
         Execute the task and publish its lifecycle state.
         """
-        async with self._transition_lock:
+        async with self._lifecycle_lock:
             if self.status is TaskStatus.RUNNING:
                 raise RuntimeError(f'{self.name} is already running.')
 
@@ -125,7 +135,7 @@ class Task:
         """
         Interrupt the task if it is running and wait for it to finish.
         """
-        async with self._transition_lock:
+        async with self._lifecycle_lock:
             if self.status is TaskStatus.PENDING:
                 self._set_status(TaskStatus.STOPPED)
                 return
