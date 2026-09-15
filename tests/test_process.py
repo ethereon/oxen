@@ -40,6 +40,20 @@ class ShellProcessGroupTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.status, TaskStatus.COMPLETED)
         self.assertEqual(task.output.text.count('True'), 2)
 
+    async def test_publishes_terminal_status_after_cleanup(self) -> None:
+        task = Shell('true')
+        cleanup_complete: list[bool] = []
+
+        def record_cleanup_state(status: TaskStatus) -> None:
+            if status is TaskStatus.COMPLETED:
+                cleanup_complete.append(task._runner is None and task._run_complete.is_set())
+
+        task.on_status_change.subscribe(record_cleanup_state)
+
+        await task.run()
+
+        self.assertEqual(cleanup_complete, [True])
+
     async def test_pty_rejects_custom_output_streams(self) -> None:
         task = Shell('true', pty=True, stdout=asyncio.subprocess.PIPE)
 

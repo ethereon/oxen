@@ -89,21 +89,16 @@ class Process(Task):
         self.process: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
 
-        self._runner: asyncio.Task[None] | None = None
-        self._run_complete = asyncio.Event()
-        self._run_complete.set()
-        self._stop_requested = False
+        self._has_run = False
         self._process_group_id: int | None = None
 
-    async def run(self) -> None:
+    async def _execute(self) -> TaskStatus:
         """
         Start the process and wait for it to exit.
         """
-        if self.status is TaskStatus.RUNNING:
-            raise RuntimeError('Process is already running.')
-
-        if self.clear_output_on_restart and self.status is not TaskStatus.PENDING:
+        if self.clear_output_on_restart and self._has_run:
             self.output.clear()
+        self._has_run = True
 
         spawn_kwargs = self.spawn_kwargs.copy()
 
@@ -142,10 +137,6 @@ class Process(Task):
         self.returncode = None
         self.process = None
         self._process_group_id = None
-        self._stop_requested = False
-        self._runner = asyncio.current_task()
-        self._run_complete.clear()
-        self.status = TaskStatus.RUNNING
 
         try:
             if self.pty:
@@ -178,19 +169,10 @@ class Process(Task):
                 await process.wait()
 
             self.returncode = process.returncode
-            if self._stop_requested:
-                self.status = TaskStatus.STOPPED
-            else:
-                self.status = TaskStatus.COMPLETED if self.returncode == 0 else TaskStatus.FAILED
-        except asyncio.CancelledError:
+            return TaskStatus.COMPLETED if self.returncode == 0 else TaskStatus.FAILED
+        except BaseException:
             await self._terminate()
             self.returncode = self.process.returncode if self.process is not None else None
-            self.status = TaskStatus.FAILED
-            raise
-        except Exception:
-            await self._terminate()
-            self.returncode = self.process.returncode if self.process is not None else None
-            self.status = TaskStatus.FAILED
             raise
         finally:
             if pty_main_fd is not None:
@@ -198,20 +180,13 @@ class Process(Task):
             if self.returncode is not None:
                 prefix = '' if not self.output.text or self.output.text.endswith('\n') else '\n'
                 self.output.append(f'\n{prefix}━━━━━━━━━━━━ Exit Code {self.returncode} ━━━━━━━━━━━━\n')
-            self._runner = None
             self._process_group_id = None
-            self._run_complete.set()
 
-    async def stop(self) -> None:
+    async def _interrupt(self) -> None:
         """
-        Terminate the subprocess, if it is running.
+        Terminate the subprocess.
         """
-        self._stop_requested = True
         await self._terminate()
-        if self._runner is not None and self._runner is not asyncio.current_task():
-            await self._run_complete.wait()
-        elif self.status is TaskStatus.PENDING:
-            self.status = TaskStatus.STOPPED
 
     async def _terminate(self) -> None:
         process = self.process

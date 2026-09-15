@@ -1,27 +1,64 @@
+import asyncio
 import unittest
 
 from oxen.core import Oxen, TaskOperationError, TaskOutputChange, TaskStatusChange
-from oxen.task import Task, TaskStatus
+from oxen.task import BufferedTaskOutput, Task, TaskStatus
 
 
 class FakeTask(Task):
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
+    def __init__(
+        self,
+        name: str,
+        result: TaskStatus = TaskStatus.COMPLETED,
+        output: BufferedTaskOutput | None = None,
+    ) -> None:
+        super().__init__(name, output=output)
+        self.result = result
         self.run_count = 0
         self.stop_count = 0
 
-    async def run(self) -> None:
+    async def _execute(self) -> TaskStatus:
         self.run_count += 1
-        self.status = TaskStatus.RUNNING
+        return self.result
 
-    async def stop(self) -> None:
+    async def _interrupt(self) -> None:
         self.stop_count += 1
-        self.status = TaskStatus.STOPPED
 
 
 class FailingTask(FakeTask):
-    async def run(self) -> None:
+    async def _execute(self) -> TaskStatus:
         raise RuntimeError('broken')
+
+
+class BlockingTask(FakeTask):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.release = asyncio.Event()
+
+    async def _execute(self) -> TaskStatus:
+        self.run_count += 1
+        await self.release.wait()
+        return self.result
+
+    async def _interrupt(self) -> None:
+        self.stop_count += 1
+        self.release.set()
+
+
+class CancellableTask(Task):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.started = asyncio.Event()
+
+    async def _execute(self) -> TaskStatus:
+        self.started.set()
+        await asyncio.Event().wait()
+        return TaskStatus.COMPLETED
+
+
+class InvalidResultTask(Task):
+    async def _execute(self) -> TaskStatus:
+        return TaskStatus.RUNNING
 
 
 class FakeUI:
@@ -46,6 +83,12 @@ class FakeUI:
 
 
 class OxenStateTest(unittest.TestCase):
+    def test_task_can_share_an_existing_output(self) -> None:
+        output = BufferedTaskOutput()
+        task = FakeTask('shared output', output=output)
+
+        self.assertIs(task.output, output)
+
     def test_adds_tasks_and_selects_the_first(self) -> None:
         first = FakeTask('first')
         second = FakeTask('second')
@@ -78,7 +121,7 @@ class OxenStateTest(unittest.TestCase):
         oxen.on_task_status_change.subscribe(statuses.append)
         oxen.on_task_output_change.subscribe(outputs.append)
 
-        task.status = TaskStatus.RUNNING
+        task._set_status(TaskStatus.RUNNING)
         task.output.append('hello')
 
         self.assertEqual(statuses, [TaskStatusChange(task, TaskStatus.RUNNING)])
@@ -106,6 +149,88 @@ class OxenStateTest(unittest.TestCase):
 
 
 class OxenTest(unittest.IsolatedAsyncioTestCase):
+    async def test_task_owns_status_transitions(self) -> None:
+        task = FakeTask('task')
+        statuses: list[TaskStatus] = []
+        task.on_status_change.subscribe(statuses.append)
+
+        with self.assertRaises(AttributeError):
+            task.status = TaskStatus.RUNNING  # type: ignore[misc]
+
+        await task.run()
+
+        self.assertEqual(statuses, [TaskStatus.RUNNING, TaskStatus.COMPLETED])
+        self.assertEqual(task.status, TaskStatus.COMPLETED)
+
+    async def test_task_maps_results_exceptions_and_invalid_results(self) -> None:
+        failed = FakeTask('failed', result=TaskStatus.FAILED)
+        await failed.run()
+        self.assertEqual(failed.status, TaskStatus.FAILED)
+
+        raised = FailingTask('raised')
+        with self.assertRaisesRegex(RuntimeError, 'broken'):
+            await raised.run()
+        self.assertEqual(raised.status, TaskStatus.FAILED)
+
+        invalid = InvalidResultTask('invalid')
+        with self.assertRaisesRegex(ValueError, 'invalid terminal status'):
+            await invalid.run()
+        self.assertEqual(invalid.status, TaskStatus.FAILED)
+
+    async def test_default_interrupt_cancels_execution(self) -> None:
+        task = CancellableTask('task')
+        runner = asyncio.create_task(task.run())
+        await task.started.wait()
+
+        await task.stop()
+
+        await runner
+        self.assertFalse(runner.cancelled())
+        self.assertEqual(task.status, TaskStatus.STOPPED)
+
+    async def test_external_cancellation_propagates(self) -> None:
+        task = CancellableTask('task')
+        runner = asyncio.create_task(task.run())
+        await task.started.wait()
+
+        runner.cancel()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await runner
+        self.assertEqual(task.status, TaskStatus.STOPPED)
+
+    async def test_rejects_overlapping_runs(self) -> None:
+        task = BlockingTask('task')
+        runner = asyncio.create_task(task.run())
+        await asyncio_pause()
+
+        with self.assertRaisesRegex(RuntimeError, 'already running'):
+            await task.run()
+
+        await task.stop()
+        await runner
+
+    async def test_restart_only_stops_a_running_task(self) -> None:
+        for status in (TaskStatus.PENDING, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.STOPPED):
+            with self.subTest(status=status):
+                task = FakeTask('task')
+                task._set_status(status)
+
+                await task.restart()
+
+                self.assertEqual(task.stop_count, 0)
+                self.assertEqual(task.run_count, 1)
+
+        task = BlockingTask('task')
+        first_run = asyncio.create_task(task.run())
+        await asyncio_pause()
+
+        await task.restart()
+        await first_run
+
+        self.assertEqual(task.stop_count, 1)
+        self.assertEqual(task.run_count, 2)
+
     async def test_constructs_and_runs_configured_ui(self) -> None:
         oxen = Oxen(ui=FakeUI)
 

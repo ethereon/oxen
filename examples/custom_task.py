@@ -16,15 +16,8 @@ class ReachabilityCheck(Task):
         super().__init__(host)
         self.host = host
         self.timeout = timeout
-        self._runner: asyncio.Task[None] | None = None
 
-    async def run(self) -> None:
-        if self.status is TaskStatus.RUNNING:
-            return
-
-        # Status and output changes are reflected immediately in the UI.
-        self.status = TaskStatus.RUNNING
-        self._runner = asyncio.current_task()
+    async def _execute(self) -> TaskStatus:
         self.output.append(f'Checking {self.host}:\n')
         try:
             # Opening a TLS connection verifies both DNS and connectivity.
@@ -36,23 +29,10 @@ class ReachabilityCheck(Task):
 
             elapsed = asyncio.get_running_loop().time() - started
             self.output.append(f'Reachable in {elapsed:.2f}s\n')
-            self.status = TaskStatus.COMPLETED
-        except asyncio.CancelledError:
-            self.status = TaskStatus.STOPPED
-            raise
+            return TaskStatus.COMPLETED
         except (OSError, TimeoutError) as error:
             self.output.append(f'{type(error).__name__}: {error}\n')
-            self.status = TaskStatus.FAILED
-        finally:
-            self._runner = None
-
-    async def stop(self) -> None:
-        if self._runner is not None:
-            # Cancelling run() also cancels its pending network operation.
-            self._runner.cancel()
-            await asyncio.gather(self._runner, return_exceptions=True)
-        elif self.status is TaskStatus.PENDING:
-            self.status = TaskStatus.STOPPED
+            return TaskStatus.FAILED
 
 
 if __name__ == '__main__':

@@ -1,15 +1,12 @@
 import unittest
 
-from oxen.task import Task
+from oxen.task import Task, TaskStatus
 from oxen.ui import normalize_task_layout
 
 
 class FakeTask(Task):
-    async def run(self) -> None:
-        pass
-
-    async def stop(self) -> None:
-        pass
+    async def _execute(self) -> TaskStatus:
+        return TaskStatus.COMPLETED
 
 
 class TaskLayoutTest(unittest.TestCase):

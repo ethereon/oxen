@@ -92,20 +92,12 @@ from oxen import Task, TaskStatus
 
 class MyTask(Task):
 
-    async def run(self) -> None:
-        # The status and output changes below are automatically
-        # reflected in the UI.
-        self.status = TaskStatus.RUNNING
-        self.output.append('Working…\n')
+    async def _execute(self) -> TaskStatus:
+        self.output.append('Working...\n')
 
         # ... do asynchronous work here ...
 
-        self.status = TaskStatus.COMPLETED
-
-    async def stop(self) -> None:
-        # ... interrupt async work ...
-        self.status = TaskStatus.STOPPED
-
+        return TaskStatus.COMPLETED
 ```
 
 See [custom_task.py](examples/custom_task.py) for a simple example.

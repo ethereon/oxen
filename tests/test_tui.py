@@ -19,13 +19,12 @@ class FakeTask(Task):
         self.run_count = 0
         self.stop_count = 0
 
-    async def run(self) -> None:
+    async def _execute(self) -> TaskStatus:
         self.run_count += 1
-        self.status = TaskStatus.RUNNING
+        return TaskStatus.COMPLETED
 
-    async def stop(self) -> None:
+    async def _interrupt(self) -> None:
         self.stop_count += 1
-        self.status = TaskStatus.STOPPED
 
 
 class OxenTest(unittest.IsolatedAsyncioTestCase):
@@ -61,7 +60,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
             output = first.output
             output.append('hello\n')
-            first.status = TaskStatus.FAILED
+            first._set_status(TaskStatus.FAILED)
             await pilot.pause()
 
             selected_log = app.query_one('#selected-task-output', TaskLog)
@@ -76,7 +75,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
 
             await pilot.press('r')
             await pilot.pause()
-            self.assertEqual(first.stop_count, 1)
+            self.assertEqual(first.stop_count, 0)
             self.assertEqual(first.run_count, 1)
 
             await pilot.press('down')
@@ -147,18 +146,14 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         single_view = Oxen(auto_start=False)
         async with single_view.ui.run_test() as pilot:
             await pilot.pause()
-            self.assertFalse(
-                any(binding.action == 'next_view' for _, binding, _, _ in single_view.ui.screen.active_bindings.values())
-            )
+            self.assertFalse(any(binding.action == 'next_view' for _, binding, _, _ in single_view.ui.screen.active_bindings.values()))
 
         multiple_views = Oxen(auto_start=False)
         task = FakeTask('task')
         multiple_views.add_layout([task], name='Layout')
         async with multiple_views.ui.run_test() as pilot:
             await pilot.pause()
-            self.assertTrue(
-                any(binding.action == 'next_view' for _, binding, _, _ in multiple_views.ui.screen.active_bindings.values())
-            )
+            self.assertTrue(any(binding.action == 'next_view' for _, binding, _, _ in multiple_views.ui.screen.active_bindings.values()))
 
     async def test_add_layout_registers_tasks_and_builds_nested_splits(self) -> None:
         first = FakeTask('first')
@@ -198,7 +193,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(first_panel.has_focus_within)
 
             first.output.append('layout output\n')
-            first.status = TaskStatus.FAILED
+            first._set_status(TaskStatus.FAILED)
             await pilot.pause()
             second_panel = next(panel for panel in layout.query(TaskPanel) if panel.oxen_task is second)
             first_header = first_panel.query_one(TaskHeader)
@@ -235,11 +230,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
 
             layout = app.query_one(TaskSplitView)
-            first_panel = next(
-                panel
-                for panel in layout.query(TaskPanel)
-                if panel.oxen_task is first_visible
-            )
+            first_panel = next(panel for panel in layout.query(TaskPanel) if panel.oxen_task is first_visible)
             self.assertIs(app.selected_task, first_visible)
             self.assertTrue(first_panel.has_focus_within)
 
