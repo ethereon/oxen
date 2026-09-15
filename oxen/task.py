@@ -70,7 +70,9 @@ class Task:
     Base class for a task: asynchronous work that reports its
     status transitions and output changes.
 
-    Subclasses should implement _execute and, optionally, _interrupt.
+    Interact with the task via `run`, `stop`, and `restart`.
+
+    Subclasses should implement `execute` and, optionally, `interrupt`.
     """
 
     def __init__(
@@ -120,9 +122,9 @@ class Task:
 
         final_status = TaskStatus.FAILED
         try:
-            result = await self._execute()
+            result = await self.execute()
             if result not in (TaskStatus.COMPLETED, TaskStatus.FAILED):
-                raise ValueError(f'_execute() returned invalid terminal status: {result!r}')
+                raise ValueError(f'execute() returned invalid terminal status: {result!r}')
             final_status = TaskStatus.STOPPED if self._stop_requested else result
         except asyncio.CancelledError:
             final_status = TaskStatus.STOPPED
@@ -149,7 +151,7 @@ class Task:
             runner = self._runner
 
         if should_interrupt:
-            await self._interrupt()
+            await self.interrupt()
         if runner is not None and runner is not asyncio.current_task():
             await self._run_complete.wait()
 
@@ -161,7 +163,7 @@ class Task:
             await self.stop()
         await self.run()
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         """
         Perform the actual work.
 
@@ -173,7 +175,7 @@ class Task:
         """
         raise NotImplementedError
 
-    async def _interrupt(self) -> None:
+    async def interrupt(self) -> None:
         """
         Interrupt an active execution.
 

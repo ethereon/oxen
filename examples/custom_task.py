@@ -17,7 +17,7 @@ class ReachabilityCheck(Task):
         self.host = host
         self.timeout = timeout
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         self.output.append(f'Checking {self.host}:\n')
         try:
             # Opening a TLS connection verifies both DNS and connectivity.

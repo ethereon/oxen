@@ -5,7 +5,7 @@ from oxen.ui import normalize_task_layout
 
 
 class FakeTask(Task):
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         return TaskStatus.COMPLETED
 
 

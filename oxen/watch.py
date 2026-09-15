@@ -79,7 +79,7 @@ class Watch(Task):
         self._watched_files: set[Path] = set()
         self._watched_directories: set[Path] = set()
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         """
         Start watching and continue until the watcher is stopped.
         """
@@ -133,7 +133,7 @@ class Watch(Task):
                 if observer_started:
                     self._log('Stopped watching')
 
-    async def _interrupt(self) -> None:
+    async def interrupt(self) -> None:
         """
         Wake the watcher so its execution loop can stop.
         """

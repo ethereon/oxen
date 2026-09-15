@@ -16,15 +16,15 @@ class FakeTask(Task):
         self.result = result
         self.stop_count = 0
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         return self.result
 
-    async def _interrupt(self) -> None:
+    async def interrupt(self) -> None:
         self.stop_count += 1
 
 
 class FailingTask(FakeTask):
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         raise RuntimeError('broken')
 
 
@@ -33,11 +33,11 @@ class BlockingTask(FakeTask):
         super().__init__(name)
         self.release = asyncio.Event()
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         await self.release.wait()
         return self.result
 
-    async def _interrupt(self) -> None:
+    async def interrupt(self) -> None:
         self.stop_count += 1
         self.release.set()
 
@@ -47,14 +47,14 @@ class CancellableTask(Task):
         super().__init__(name)
         self.started = asyncio.Event()
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         self.started.set()
         await asyncio.Event().wait()
         return TaskStatus.COMPLETED
 
 
 class InvalidResultTask(Task):
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         return TaskStatus.RUNNING
 
 

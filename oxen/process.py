@@ -91,7 +91,7 @@ class Process(Task):
 
         self._process_group_id: int | None = None
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         """
         Start the process and wait for it to exit.
         """
@@ -180,7 +180,7 @@ class Process(Task):
                 self.output.append(f'\n{prefix}━━━━━━━━━━━━ Exit Code {self.returncode} ━━━━━━━━━━━━\n')
             self._process_group_id = None
 
-    async def _interrupt(self) -> None:
+    async def interrupt(self) -> None:
         """
         Terminate the subprocess.
         """

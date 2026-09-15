@@ -116,7 +116,7 @@ from oxen import Task, TaskStatus
 
 class MyTask(Task):
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         self.output.append('Working...\n')
 
         # ... do asynchronous work here ...

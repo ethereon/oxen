@@ -21,18 +21,18 @@ class FakeTask(Task):
         super().__init__('target')
         self.stop_count = 0
 
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         return TaskStatus.COMPLETED
 
-    async def _interrupt(self) -> None:
+    async def interrupt(self) -> None:
         self.stop_count += 1
 
 
 class ClearingTask(FakeTask):
-    async def _execute(self) -> TaskStatus:
+    async def execute(self) -> TaskStatus:
         if self.run_count > 1:
             self.output.clear()
-        return await super()._execute()
+        return await super().execute()
 
 
 class FakeObserver:
