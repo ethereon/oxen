@@ -9,14 +9,14 @@ class FakeTask(Task):
     def __init__(
         self,
         name: str,
-        result: TaskStatus = TaskStatus.COMPLETED,
+        result: bool = True,
         output: BufferedTaskOutput | None = None,
     ) -> None:
         super().__init__(name, output=output)
         self.result = result
         self.stop_count = 0
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         return self.result
 
     async def interrupt(self) -> None:
@@ -24,7 +24,7 @@ class FakeTask(Task):
 
 
 class FailingTask(FakeTask):
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         raise RuntimeError('broken')
 
 
@@ -33,7 +33,7 @@ class BlockingTask(FakeTask):
         super().__init__(name)
         self.release = asyncio.Event()
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         await self.release.wait()
         return self.result
 
@@ -47,15 +47,15 @@ class CancellableTask(Task):
         super().__init__(name)
         self.started = asyncio.Event()
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         self.started.set()
         await asyncio.Event().wait()
-        return TaskStatus.COMPLETED
+        return True
 
 
 class InvalidResultTask(Task):
-    async def execute(self) -> TaskStatus:
-        return TaskStatus.RUNNING
+    async def execute(self) -> bool:
+        return TaskStatus.COMPLETED  # type: ignore[return-value]
 
 
 class FakeUI:
@@ -166,7 +166,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.run_count, 1)
 
     async def test_task_maps_results_exceptions_and_invalid_results(self) -> None:
-        failed = FakeTask('failed', result=TaskStatus.FAILED)
+        failed = FakeTask('failed', result=False)
         await failed.run()
         self.assertEqual(failed.status, TaskStatus.FAILED)
 
@@ -176,7 +176,7 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.status, TaskStatus.FAILED)
 
         invalid = InvalidResultTask('invalid')
-        with self.assertRaisesRegex(ValueError, 'invalid terminal status'):
+        with self.assertRaisesRegex(ValueError, 'non-boolean result'):
             await invalid.run()
         self.assertEqual(invalid.status, TaskStatus.FAILED)
 

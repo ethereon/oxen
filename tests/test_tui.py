@@ -18,8 +18,8 @@ class FakeTask(Task):
         super().__init__(name)
         self.stop_count = 0
 
-    async def execute(self) -> TaskStatus:
-        return TaskStatus.COMPLETED
+    async def execute(self) -> bool:
+        return True
 
     async def interrupt(self) -> None:
         self.stop_count += 1

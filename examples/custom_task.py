@@ -4,7 +4,7 @@ Demonstrates how to implement custom async tasks.
 
 import asyncio
 
-from oxen import Oxen, Task, TaskStatus
+from oxen import Oxen, Task
 
 
 class ReachabilityCheck(Task):
@@ -17,7 +17,7 @@ class ReachabilityCheck(Task):
         self.host = host
         self.timeout = timeout
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         self.output.append(f'Checking {self.host}:\n')
         try:
             # Opening a TLS connection verifies both DNS and connectivity.
@@ -29,10 +29,10 @@ class ReachabilityCheck(Task):
 
             elapsed = asyncio.get_running_loop().time() - started
             self.output.append(f'Reachable in {elapsed:.2f}s\n')
-            return TaskStatus.COMPLETED
+            return True
         except (OSError, TimeoutError) as error:
             self.output.append(f'{type(error).__name__}: {error}\n')
-            return TaskStatus.FAILED
+            return False
 
 
 if __name__ == '__main__':

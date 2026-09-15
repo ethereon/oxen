@@ -10,7 +10,7 @@ import signal
 from collections.abc import Sequence
 from typing import Any
 
-from .task import Task, TaskStatus
+from .task import Task
 
 
 class Process(Task):
@@ -91,7 +91,7 @@ class Process(Task):
 
         self._process_group_id: int | None = None
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         """
         Start the process and wait for it to exit.
         """
@@ -167,7 +167,7 @@ class Process(Task):
                 await process.wait()
 
             self.returncode = process.returncode
-            return TaskStatus.COMPLETED if self.returncode == 0 else TaskStatus.FAILED
+            return self.returncode == 0
         except BaseException:
             await self._terminate()
             self.returncode = self.process.returncode if self.process is not None else None

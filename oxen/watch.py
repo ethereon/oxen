@@ -10,7 +10,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from .task import Task, TaskStatus
+from .task import Task
 
 
 type PathArgument = str | bytes | os.PathLike[str] | os.PathLike[bytes]
@@ -79,7 +79,7 @@ class Watch(Task):
         self._watched_files: set[Path] = set()
         self._watched_directories: set[Path] = set()
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         """
         Start watching and continue until the watcher is stopped.
         """
@@ -117,7 +117,7 @@ class Watch(Task):
                     await self.task.restart()
                     self._log(f'Task finished with status {self.task.status.value}')
 
-            return TaskStatus.COMPLETED
+            return True
         finally:
             try:
                 if observer is not None and observer_started:

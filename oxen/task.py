@@ -123,9 +123,9 @@ class Task:
         final_status = TaskStatus.FAILED
         try:
             result = await self.execute()
-            if result not in (TaskStatus.COMPLETED, TaskStatus.FAILED):
-                raise ValueError(f'execute() returned invalid terminal status: {result!r}')
-            final_status = TaskStatus.STOPPED if self._stop_requested else result
+            if type(result) is not bool:
+                raise ValueError(f'execute() returned a non-boolean result: {result!r}')
+            final_status = TaskStatus.STOPPED if self._stop_requested else (TaskStatus.COMPLETED if result else TaskStatus.FAILED)
         except asyncio.CancelledError:
             final_status = TaskStatus.STOPPED
             if not self._stop_requested:
@@ -163,13 +163,12 @@ class Task:
             await self.stop()
         await self.run()
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         """
         Perform the actual work.
 
         Subclasses must implement this method to perform the
-        task-specific work. On completion, return the new status
-        of the task (either COMPLETED or FAILED).
+        task-specific work. Return True on success or False on failure.
 
         Invoked via `run`.
         """

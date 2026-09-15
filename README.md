@@ -112,16 +112,16 @@ pip install 'oxen[watch]'
 Subclass `Task` to put any asynchronous work behind the same status, output, and lifecycle interface:
 
 ```python
-from oxen import Task, TaskStatus
+from oxen import Task
 
 class MyTask(Task):
 
-    async def execute(self) -> TaskStatus:
+    async def execute(self) -> bool:
         self.output.append('Working...\n')
 
         # ... do asynchronous work here ...
 
-        return TaskStatus.COMPLETED
+        return True
 ```
 
 See [custom_task.py](examples/custom_task.py) for a simple example.
