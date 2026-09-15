@@ -83,6 +83,30 @@ Oxen(monitor).run()
 - Oxen correctly renders common interactive output, such as progress bars, by interpreting cursor, erase, color, and carriage-return sequences.
 - [Pseudoterminal](https://en.wikipedia.org/wiki/Pseudoterminal) (PTY) mode can be enabled on POSIX platforms by passing `pty=True`.
 
+### Watching the Filesystem
+
+Use `Watch` to auto-run a task whenever one or more files or directories change:
+
+```python
+from oxen import Oxen, Shell
+from oxen.watch import Watch
+
+watch_tests = Watch(
+    # Watch the src and test directories for changes
+    'src',
+    'tests',
+    # Run unit tests whenever changes are detected
+    task=Shell('python -m unittest discover', name='tests'),
+)
+Oxen(watch_tests).run()
+```
+
+`Watch` requires the [Watchdog library](https://pypi.org/project/watchdog/) for filesystem events monitoring. Install it with:
+
+```console
+pip install 'oxen[watch]'
+```
+
 ### Custom Tasks
 
 Subclass `Task` to put any asynchronous work behind the same status, output, and lifecycle interface:
