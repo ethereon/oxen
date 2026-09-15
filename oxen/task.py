@@ -97,10 +97,9 @@ class Task:
         # Coordinates state updates made by concurrent `run` and `stop` calls.
         self._lifecycle_lock = asyncio.Lock()
 
-        # Tracks the active run and signals when it finishes.
+        # Tracks the active run.
         self._runner: asyncio.Task[None] | None = None
-        self._run_complete = asyncio.Event()
-        self._run_complete.set()
+        self._run_complete: asyncio.Event
 
         # Set when the `stop` method is invoked.
         # Subclasses may safely read this flag.
@@ -117,7 +116,7 @@ class Task:
             self.run_count += 1
             self._stop_requested = False
             self._runner = asyncio.current_task()
-            self._run_complete.clear()
+            run_complete = self._run_complete = asyncio.Event()
             self._set_status(TaskStatus.RUNNING)
 
         final_status = TaskStatus.FAILED
@@ -132,7 +131,7 @@ class Task:
                 raise
         finally:
             self._runner = None
-            self._run_complete.set()
+            run_complete.set()
             self._set_status(final_status)
 
     async def stop(self) -> None:
@@ -149,11 +148,12 @@ class Task:
             should_interrupt = not self._stop_requested
             self._stop_requested = True
             runner = self._runner
+            run_complete = self._run_complete
 
         if should_interrupt:
             await self.interrupt()
         if runner is not None and runner is not asyncio.current_task():
-            await self._run_complete.wait()
+            await run_complete.wait()
 
     async def restart(self) -> None:
         """

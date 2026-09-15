@@ -214,6 +214,40 @@ class OxenTest(unittest.IsolatedAsyncioTestCase):
         await task.stop()
         await runner
 
+    async def test_stop_waits_only_for_the_run_it_stopped(self) -> None:
+        class TaskWithSlowInterrupt(Task):
+            def __init__(self) -> None:
+                super().__init__('task')
+                self.releases = [asyncio.Event(), asyncio.Event()]
+                self.interrupt_started = asyncio.Event()
+                self.finish_interrupt = asyncio.Event()
+
+            async def execute(self) -> bool:
+                await self.releases[self.run_count - 1].wait()
+                return True
+
+            async def interrupt(self) -> None:
+                self.interrupt_started.set()
+                await self.finish_interrupt.wait()
+
+        task = TaskWithSlowInterrupt()
+        first = asyncio.create_task(task.run())
+        await asyncio_pause()
+        stopping = asyncio.create_task(task.stop())
+        await task.interrupt_started.wait()
+
+        task.releases[0].set()
+        await first
+        second = asyncio.create_task(task.run())
+        await asyncio_pause()
+        task.finish_interrupt.set()
+        try:
+            await asyncio.wait_for(stopping, 0.1)
+            self.assertEqual(task.status, TaskStatus.RUNNING)
+        finally:
+            task.releases[1].set()
+            await second
+
     async def test_restart_only_stops_a_running_task(self) -> None:
         for status in (TaskStatus.PENDING, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.STOPPED):
             with self.subTest(status=status):
