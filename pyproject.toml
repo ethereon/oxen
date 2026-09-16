@@ -21,6 +21,9 @@ watch = ["watchdog>=4"]
 [tool.setuptools.packages.find]
 include = ["oxen*"]
 
+[tool.setuptools.package-data]
+oxen = ["*.tcss"]
+
 [tool.ruff]
 line-length = 200
 target-version = "py312"
