@@ -1,1 +1,0 @@
-recursive-include oxen/client/static *.js *.map *.css *.html

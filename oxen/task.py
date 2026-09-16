@@ -1,185 +1,204 @@
-import enum
+import asyncio
 import io
-import itertools
 
-from .event import EventEmitter
+from enum import Enum
+
+from .publisher import Publisher
 
 
-class TaskStatus(enum.Enum):
-    ACTIVE = 'active'
-    FINISHED = 'finished'
+class TaskStatus(Enum):
+    PENDING = 'pending'
+    RUNNING = 'running'
+    COMPLETED = 'completed'
     FAILED = 'failed'
+    STOPPED = 'stopped'
 
 
-class TaskEvent(enum.Enum):
-    OUTPUT_UPDATED = 'output-updated'
-    STATUS_CHANGED = 'status-changed'
+class TaskOutput:
+    """
+    Base class for task output.
+    """
+
+    def __init__(self):
+        self.on_update = Publisher[str]()
+
+    def append(self, text: str) -> None:
+        """
+        Append text to the output and notify subscribers.
+        """
+        raise NotImplementedError('Subclasses must implement the append method.')
+
+    def clear(self) -> None:
+        """
+        Clear the output and notify subscribers.
+        """
+        raise NotImplementedError('Subclasses must implement the clear method.')
+
+    @property
+    def text(self) -> str:
+        """
+        The current output of the task.
+        """
+        raise NotImplementedError('Subclasses must implement the text property.')
 
 
-class TaskAction:
-    def __init__(self, name, handler):
-        self.name = name
-        self.handler = handler
+class BufferedTaskOutput(TaskOutput):
+    """
+    StringIO backed task output.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._output = io.StringIO()
+
+    def append(self, text: str) -> None:
+        self._output.write(text)
+        self.on_update.publish(text)
+
+    def clear(self) -> None:
+        self._output.seek(0)
+        self._output.truncate()
+        self.on_update.publish('\x1bc')
+
+    @property
+    def text(self) -> str:
+        return self._output.getvalue()
 
 
 class Task:
     """
-    Abstract base class for tasks: an asynchronous worker.
+    Base class for a task: asynchronous work that reports its
+    status transitions and output changes.
+
+    Interact with the task via `run`, `stop`, and `restart`.
+
+    Subclasses should implement `execute` and, optionally, `interrupt`.
     """
 
-    id_generator = itertools.count()
-
-    def __init__(self, name):
-        # A unique ID associated with this task.
-        # By default, a monotonically increasing integer.
-        self.id = next(Task.id_generator)
-        # A name associated with this task (not necessarily unique)
+    def __init__(
+        self,
+        name: str,
+        *,
+        auto_start: bool = True,
+        output: TaskOutput | None = None,
+    ):
         self.name = name
-        # Event publisher / subscriber
-        self.events = EventEmitter()
-        # An asyncio event loop. Subclasses must register tasks with this event loop.
-        self.loop = None
+        self.output = output if output is not None else BufferedTaskOutput()
+        self.auto_start = auto_start
+        self.run_count = 0
 
-    def start(self):
+        # Published when the task's status changes.
+        self.on_status_change = Publisher[TaskStatus]()
+
+        # Tracks the task status. Avoid mutating this directly.
+        # The status transitions are handled by this base class.
+        self._status = TaskStatus.PENDING
+
+        # Coordinates state updates made by concurrent `run` and `stop` calls.
+        self._lifecycle_lock = asyncio.Lock()
+
+        # Tracks the active run.
+        self._runner: asyncio.Task[None] | None = None
+        self._run_complete: asyncio.Event
+
+        # Set when the `stop` method is invoked.
+        # Subclasses may safely read this flag.
+        self._stop_requested = False
+
+    async def run(self) -> None:
         """
-        Register tasks with the event loop.
+        Execute the task and publish its lifecycle state.
+        """
+        async with self._lifecycle_lock:
+            if self.status is TaskStatus.RUNNING:
+                raise RuntimeError(f'{self.name} is already running.')
+
+            self.run_count += 1
+            self._stop_requested = False
+            self._runner = asyncio.current_task()
+            run_complete = self._run_complete = asyncio.Event()
+            self._set_status(TaskStatus.RUNNING)
+
+        final_status = TaskStatus.FAILED
+        try:
+            result = await self.execute()
+            if type(result) is not bool:
+                raise ValueError(f'execute() returned a non-boolean result: {result!r}')
+            final_status = TaskStatus.STOPPED if self._stop_requested else (TaskStatus.COMPLETED if result else TaskStatus.FAILED)
+        except asyncio.CancelledError:
+            final_status = TaskStatus.STOPPED
+            if not self._stop_requested:
+                raise
+        finally:
+            self._runner = None
+            run_complete.set()
+            self._set_status(final_status)
+
+    async def stop(self) -> None:
+        """
+        Interrupt the task if it is running and wait for it to finish.
+        """
+        async with self._lifecycle_lock:
+            if self.status is TaskStatus.PENDING:
+                self._set_status(TaskStatus.STOPPED)
+                return
+            if self.status is not TaskStatus.RUNNING:
+                return
+
+            should_interrupt = not self._stop_requested
+            self._stop_requested = True
+            runner = self._runner
+            run_complete = self._run_complete
+
+        if should_interrupt:
+            await self.interrupt()
+        if runner is not None and runner is not asyncio.current_task():
+            await run_complete.wait()
+
+    async def restart(self) -> None:
+        """
+        Stop the task if it is running, then run it again.
+        """
+        if self.status is TaskStatus.RUNNING:
+            await self.stop()
+        await self.run()
+
+    async def execute(self) -> bool:
+        """
+        Perform the actual work.
+
+        Subclasses must implement this method to perform the
+        task-specific work. Return True on success or False on failure.
+
+        Invoked via `run`.
         """
         raise NotImplementedError
 
-    def stop(self):
+    async def interrupt(self) -> None:
         """
-        Stop the task and remove from the event loop.
-        """
-        raise NotImplementedError
+        Interrupt an active execution.
 
-    def get_output(self):
-        """
-        Provide the output for this task.
-        """
-        raise NotImplementedError
+        The default implementation cancels the execution coroutine.
+        Subclasses may override this to provide custom graceful interruption.
 
-    def get_actions(self):
+        Invoked via `stop`.
         """
-        Returns a list of strings describing the available actions for this task.
-        """
-        return []
-
-    def get_status(self):
-        """
-        Returns a value from TaskStatus.
-        """
-        raise NotImplementedError
-
-    def set_event_loop(self, event_loop):
-        """
-        Invoked by the session before starting the task.
-        """
-        self.loop = event_loop
-
-    def perform_action(self, action_name):
-        """
-        Execute the given action, where action is one of the strings returned
-        the get_actions method.
-        """
-        for action in self.get_actions():
-            if action.name == action_name:
-                return action.handler()
-        raise ValueError('Unsupported action: {}'.format(action_name))
-
-    def start_subtask(self, task):
-        """
-        Initiate a task owned by `self` rather than the session.
-        """
-        assert self.loop is not None
-        task.loop = self.loop
-        task.start()
+        runner = self._runner
+        if runner is not None and runner is not asyncio.current_task():
+            runner.cancel()
 
     @property
-    def is_active(self):
-        return self.get_status() == TaskStatus.ACTIVE
+    def status(self) -> TaskStatus:
+        return self._status
 
+    def _set_status(self, new_status: TaskStatus) -> None:
+        """
+        Perform a status transition.
 
-class BufferedTask(Task):
-    """
-    A task that stores its output in an in-memory buffer.
-    """
-
-    def __init__(self, name):
-        super().__init__(name)
-        self.output = io.StringIO()
-
-    def write_output(self, text):
-        self.output.write(text)
-        self.events.publish(TaskEvent.OUTPUT_UPDATED)
-
-    def write_line(self, line):
-        self.write_output(line + '\n')
-
-    def get_output(self):
-        return self.output.getvalue()
-
-
-class Lazy(Task):
-    """
-    A task wrapper that accepts a task instance and makes it "lazily"
-    initialized. That is, it must be manually initiated by the user.
-    Until then, it remains in an inactive state.
-
-    Useful for creating "on demand" tasks.
-    """
-
-    def __init__(self, task):
-        super().__init__(name=task.name)
-        self._wrapped_task = task
-        self._num_invocations = 0
-        self.id = task.id
-        self.events = task.events
-
-    @property
-    def has_been_manually_invoked(self):
-        return self._num_invocations > 1
-
-    def set_event_loop(self, event_loop):
-        super().set_event_loop(event_loop)
-        self._wrapped_task.set_event_loop(event_loop)
-
-    def start(self):
-        self._num_invocations += 1
-        # Suppress the first invocation
-        if self._num_invocations == 2:
-            self._wrapped_task.start()
-            # Trigger an update (most notably, for the actions displayed in the client)
-            self.events.publish(TaskEvent.STATUS_CHANGED)
-
-    def stop(self):
-        if self.has_been_manually_invoked:
-            self._wrapped_task.stop()
-
-    def get_output(self):
-        if self.has_been_manually_invoked:
-            return self._wrapped_task.get_output()
-        return f'Task "{self.name}" has not been started.'
-
-    def _get_wrapper_actions(self):
-        return [TaskAction(name='Start', handler=self.start)]
-
-    def get_actions(self):
-        if self.has_been_manually_invoked:
-            return self._wrapped_task.get_actions()
-        return self._get_wrapper_actions()
-
-    def get_status(self):
-        if self.has_been_manually_invoked:
-            return self._wrapped_task.get_status()
-        return TaskStatus.FINISHED
-
-    def perform_action(self, action_name):
-        if self.has_been_manually_invoked:
-            try:
-                self._wrapped_task.perform_action(action_name)
-            except ValueError:
-                # Suppress duplicate actions sent to the lazy wrapper
-                if action_name not in (action.name for action in self._get_wrapper_actions()):
-                    raise
-        else:
-            super().perform_action(action_name)
+        This typically does not need to be invoked by subclasses
+        and should be considered private. The status transitions are
+        handled by the base class implementation of `run` and `stop`.
+        """
+        if new_status != self._status:
+            self._status = new_status
+            self.on_status_change.publish(new_status)

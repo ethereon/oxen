@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oxen"
+version = "2.0.0"
+description = "A Python-based task runner with a TUI frontend."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "BSD-3-Clause"
+authors = [{ name = "Saumitro Dasgupta", email = "sd@cs.stanford.edu" }]
+dependencies = ["textual>=1.0,<9"]
+
+[project.urls]
+Homepage = "https://github.com/ethereon/oxen"
+
+[project.optional-dependencies]
+watch = ["watchdog>=4"]
+
+[tool.setuptools.packages.find]
+include = ["oxen*"]
+
+[tool.ruff]
+line-length = 200
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = ["I001", "BLE001"]
+
+[tool.ruff.format]
+quote-style = "single"

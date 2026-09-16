@@ -1,17 +1,11 @@
-# macOS temporary files
-.DS_Store
+build/
+dist/
 
-# Python compiled files
-*.pyc
-dist/*.tar.gz
-
-# Build files
-client/built
 *.egg-info
+*.pyc
 
-# Node
-node_modules
-package-lock.json
-
-# Editors
+.DS_Store
+.pytest_cache
+.ruff_cache
+.venv
 .vscode
